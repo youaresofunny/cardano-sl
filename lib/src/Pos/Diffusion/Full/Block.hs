@@ -55,7 +55,7 @@ import           Pos.Infra.Communication.Protocol (Conversation (..),
                      MkListeners (..), MsgType (..), NodeId, Origin (..),
                      OutSpecs, constantListeners, recvLimited,
                      waitForConversations, waitForDequeues)
-import           Pos.Infra.Diffusion.Types (DiffusionHealth (..))
+import           Pos.Infra.Diffusion.Types (DiffusionHealth (..), StreamBlocks (..))
 import           Pos.Infra.Network.Types (Bucket)
 import           Pos.Infra.Util.TimeWarp (nodeIdToAddress)
 import           Pos.Logic.Types (Logic)
@@ -292,7 +292,7 @@ streamBlocks
     -> NodeId
     -> HeaderHash
     -> [HeaderHash]
-    -> ([Block] -> IO t)
+    -> StreamBlocks Block IO t
     -> IO (Maybe t)
 streamBlocks _        _   _     0            _       _      _         _           _ = return Nothing -- Fallback to batch mode
 streamBlocks logTrace smM logic streamWindow enqueue nodeId tipHeader checkpoints k = do
@@ -300,7 +300,7 @@ streamBlocks logTrace smM logic streamWindow enqueue nodeId tipHeader checkpoint
     let batchSize = min 64 streamWindow
     fallBack <- atomically $ Conc.newTVar False
     requestVar <- requestBlocks fallBack blockChan
-    r <- processBlocks batchSize 0 [] blockChan `finally` (atomically $ do
+    r <- processBlocks batchSize 0 [] blockChan k `finally` (atomically $ do
         status <- Conc.readTVar requestVar
         case status of
              OQ.PacketAborted -> pure (pure ())
@@ -313,11 +313,21 @@ streamBlocks logTrace smM logic streamWindow enqueue nodeId tipHeader checkpoint
           else pure $ Just r
   where
 
-    processBlocks :: Word32 -> Word32 -> [Block] -> Conc.TBQueue StreamEntry -> IO t
-    processBlocks batchSize !n !blocks blockChan = do
+    processBlocks
+      :: Word32
+      -> Word32
+      -> [Block]
+      -> Conc.TBQueue StreamEntry
+      -> StreamBlocks Block IO t
+      -> IO t
+    processBlocks batchSize !n !blocks blockChan streamBlocksK = do
         streamEntry <- atomically $ Conc.readTBQueue blockChan
         case streamEntry of
-             StreamEnd         -> k blocks
+             StreamEnd         -> case blocks of
+               [] -> streamBlocksDone streamBlocksK
+               (blk:blks) -> do
+                 streamBlocksK' <- streamBlocksMore streamBlocksK (blk :| blks)
+                 streamBlocksDone streamBlocksK'
              StreamBlock block -> do
                  let n' = n + 1
                  when (n' `mod` 256 == 0) $
@@ -330,10 +340,10 @@ streamBlocks logTrace smM logic streamWindow enqueue nodeId tipHeader checkpoint
 
                  if n' `mod` batchSize == 0
                      then do
-                         _ <- k (block : blocks)
-                         processBlocks batchSize n' [] blockChan
+                         streamBlocksK' <- streamBlocksMore streamBlocksK (block :| blocks)
+                         processBlocks batchSize n' [] blockChan streamBlocksK'
                      else
-                         processBlocks batchSize n' (block : blocks) blockChan
+                         processBlocks batchSize n' (block : blocks) blockChan streamBlocksK
 
     writeStreamEnd :: Conc.TBQueue StreamEntry -> IO ()
     writeStreamEnd blockChan = writeBlock 1024 blockChan StreamEnd
