@@ -16257,9 +16257,11 @@ license = stdenv.lib.licenses.mit;
   mkDerivation
 , aeson
 , aeson-options
+, aeson-pretty
 , ansi-wl-pprint
 , async
 , base
+, base16-bytestring
 , base58-bytestring
 , bytestring
 , canonical-json
@@ -16279,6 +16281,7 @@ license = stdenv.lib.licenses.mit;
 , cryptonite
 , data-default
 , directory
+, docopt
 , filepath
 , formatting
 , Glob
@@ -16336,9 +16339,11 @@ universum
 executableHaskellDepends = [
 aeson
 aeson-options
+aeson-pretty
 ansi-wl-pprint
 async
 base
+base16-bytestring
 base58-bytestring
 bytestring
 canonical-json
@@ -16354,6 +16359,7 @@ cardano-sl-util
 cardano-sl-x509
 cryptonite
 directory
+docopt
 filepath
 formatting
 Glob
