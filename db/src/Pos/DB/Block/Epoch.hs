@@ -369,7 +369,7 @@ deleteOldBlund :: ConsolidateM ctx m => SlotIndexHash -> m ()
 deleteOldBlund (SlotIndexHash _ hh) = do
     bdd <- view blockDataDir <$> getNodeDBs
     let bp = bspBlund (getAllPaths bdd hh)
-    liftIO (removeFile bp) `catch` handler
+    liftIO (if False then removeFile bp else pure ()) `catch` handler
   where
     handler e
         | isDoesNotExistError e = pure ()
