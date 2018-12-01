@@ -16310,6 +16310,7 @@ license = stdenv.lib.licenses.mit;
 , lifted-async
 , mtl
 , optparse-applicative
+, process
 , reflection
 , resourcet
 , serokell-util
@@ -16318,6 +16319,7 @@ license = stdenv.lib.licenses.mit;
 , text
 , transformers
 , universum
+, unix
 , unordered-containers
 , vty
 }:
@@ -16354,6 +16356,7 @@ lens
 lifted-async
 mtl
 optparse-applicative
+process
 reflection
 resourcet
 serokell-util
@@ -16361,6 +16364,7 @@ stm
 text
 transformers
 universum
+unix
 unordered-containers
 vty
 ];
