@@ -1,3 +1,4 @@
 [submodule "wallet"]
 	path = wallet
-	url = https://github.com/input-output-hk/cardano-wallet.git
+	url = https://github.com/intricate/cardano-wallet.git
+	branch = intricate/CBR-482-481
