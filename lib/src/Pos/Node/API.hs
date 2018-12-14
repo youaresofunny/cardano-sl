@@ -14,6 +14,8 @@ import qualified Data.Aeson.Options as Aeson
 import           Data.Aeson.TH as A
 import           Data.Aeson.Types (Value (..), toJSONKeyText)
 import qualified Data.ByteArray as ByteArray
+import qualified Data.ByteString.Base64 as B64
+import qualified Data.ByteString.Char8 as BC8
 import qualified Data.Char as C
 import qualified Data.Map.Strict as Map
 import           Data.Swagger hiding (Example, example)
@@ -45,10 +47,12 @@ import           Pos.Util.Example
 import           Pos.Util.Servant (APIResponse, CustomQueryFlag, Flaggable (..),
                      HasCustomQueryFlagDescription (..), Tags, ValidJSON)
 import           Pos.Util.UnitsOfMeasure
+import           Pos.Util.Util (aesonError)
 import           Serokell.Util.Text
 
 -- ToJSON/FromJSON instances for NodeId
 import           Pos.Infra.Communication.Types.Protocol ()
+import           Test.Pos.Core.Arbitrary ()
 
 
 
@@ -397,8 +401,6 @@ newtype SlotDuration = SlotDuration (MeasuredIn 'Milliseconds Word)
 mkSlotDuration :: Word -> SlotDuration
 mkSlotDuration = SlotDuration . MeasuredIn
 
-instance Arbitrary SlotDuration where
-    arbitrary = mkSlotDuration <$> choose (0, 100)
 
 instance ToJSON SlotDuration where
     toJSON (SlotDuration (MeasuredIn w)) =
@@ -452,6 +454,10 @@ newtype V1 a = V1 a deriving (Eq, Ord)
 unV1 :: V1 a -> a
 unV1 (V1 a) = a
 
+
+instance Arbitrary SlotDuration where
+    arbitrary = mkSlotDuration <$> choose (0, 100)
+
 makePrisms ''V1
 
 instance Buildable (SecureLog a) => Buildable (SecureLog (V1 a)) where
@@ -475,7 +481,6 @@ instance Bounded a => Bounded (V1 a) where
 
 instance Show a => Show (V1 a) where
     show (V1 a) = Prelude.show a
-
 
 instance ToJSON (V1 Core.ApplicationName) where
     toJSON (V1 svAppName) = toJSON (Core.getApplicationName svAppName)
@@ -547,14 +552,143 @@ instance ToSchema (V1 Version) where
         pure $ NamedSchema (Just "V1Version") $ mempty
             & type_ .~ SwaggerString
 
+
+newtype SecurityParameter = SecurityParameter Int
+    deriving (Show, Eq, Generic, ToJSON, FromJSON, Arbitrary)
+
+instance Buildable SecurityParameter where
+    build (SecurityParameter i) = bprint shown i
+
+instance ToSchema SecurityParameter where
+    declareNamedSchema _ =
+        declareNamedSchema (Proxy @Int)
+            <&> name .~ (Just "SecurityParameter")
+
+
+instance ToSchema (V1 Core.SlotId) where
+    declareNamedSchema _ =
+        pure $ NamedSchema (Just "Core.SlotId") $ mempty
+            & type_ .~ SwaggerObject
+            & required .~ ["slot", "epoch"]
+            & properties .~ (mempty
+                & at "slot" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerNumber
+                    & maximum_ .~ Just (fromIntegral (maxBound :: Word16))
+                    & minimum_ .~ Just (fromIntegral (minBound :: Word16))
+                    )
+                & at "epoch" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerNumber
+                    & maximum_ .~ Just (fromIntegral (maxBound :: Word64))
+                    & minimum_ .~ Just (fromIntegral (minBound :: Word64))
+                    )
+                )
+
+instance ToJSON (V1 Core.SlotId) where
+    toJSON (V1 s) =
+        object
+            [ "epoch" .= toJSON (Core.getEpochIndex $ Core.siEpoch s)
+            , "slot"  .= toJSON (Core.getSlotIndex  $ Core.siSlot s)
+            ]
+
+instance FromJSON (V1 Core.SlotId) where
+    parseJSON = withObject "SlotId" $ \sl ->
+        Core.SlotId
+            <$> (fromInteger <$> sl .: "epoch")
+            <*> (Core.UnsafeLocalSlotIndex <$> sl .: "slot")
+            <&> V1
+
+instance Arbitrary (V1 Core.SlotId) where
+    arbitrary = fmap V1 arbitrary
+
+instance Arbitrary (V1 Core.TxFeePolicy) where
+    arbitrary = fmap V1 arbitrary
+
+
+instance ToJSON (V1 Core.TxFeePolicy) where
+    toJSON (V1 p) =
+        object $ case p of
+            Core.TxFeePolicyTxSizeLinear (Core.TxSizeLinear a b) ->
+                [ "tag" .= ("linear" :: String)
+                , "a" .= toJSON a
+                , "b" .= toJSON b
+                ]
+            Core.TxFeePolicyUnknown policyTag policyPayload ->
+                [ "tag" .= ("unknown" :: String)
+                , "unknownTag" .= policyTag
+                , "unknownPayload" .= (BC8.unpack $ B64.encode policyPayload)
+                ]
+
+instance FromJSON (V1 Core.TxFeePolicy) where
+    parseJSON j = V1 <$> (withObject "TxFeePolicy" $ \o -> do
+        (tag :: String) <- o .: "tag"
+        case tag of
+            "linear" ->
+                Core.TxFeePolicyTxSizeLinear <$> parseJSON j
+            "unknown" -> do
+                t <- o .: "unknownTag"
+                p <- o .: "unknownPayload"
+                p' <- either
+                        (\x -> (aesonError $ "TxFeePolicy: invalid base64" <> show x))
+                        return
+                        $ B64.decode $ BC8.pack $ p
+                return $ Core.TxFeePolicyUnknown t p'
+            _ ->
+                aesonError "TxFeePolicy: unknown policy name") j
+
+instance ToSchema (V1 Core.TxFeePolicy) where
+    declareNamedSchema _ = do
+        pure $ NamedSchema (Just "Core.TxFeePolicy") $ mempty
+            & type_ .~ SwaggerObject
+            & required .~ ["tag"]
+            & properties .~ (mempty
+                & at "tag" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerString
+                    & enum_ ?~ ["linear", "unknown"]
+                    )
+                & at "a" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerNumber
+                    )
+                & at "b" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerNumber
+                    )
+                & at "unknownTag" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerNumber
+                    )
+                & at "unknownPayload" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerString
+                    )
+                )
+
+instance Arbitrary (V1 Core.SlotCount) where
+    arbitrary = fmap V1 arbitrary
+
+instance ToSchema (V1 Core.SlotCount) where
+    declareNamedSchema _ =
+        pure $ NamedSchema (Just "V1Core.SlotCount") $ mempty
+            & type_ .~ SwaggerNumber
+            & minimum_ .~ Just 0
+
+
+
+instance ToJSON (V1 Core.SlotCount) where
+    toJSON (V1 (Core.SlotCount c)) = toJSON c
+
+instance FromJSON (V1 Core.SlotCount) where
+    parseJSON v = V1 . Core.SlotCount <$> parseJSON v
+
 -- | The @static@ settings for this wallet node. In particular, we could group
 -- here protocol-related settings like the slot duration, the transaction max size,
 -- the current software version running on the node, etc.
 data NodeSettings = NodeSettings
-    { setSlotDuration   :: !SlotDuration
-    , setSoftwareInfo   :: !(V1 Core.SoftwareVersion)
-    , setProjectVersion :: !(V1 Version)
-    , setGitRevision    :: !Text
+    { setSlotId            :: !(V1 Core.SlotId)
+    , setSlotDuration      :: !SlotDuration
+    , setSlotCount         :: !(V1 Core.SlotCount)
+    , setSoftwareInfo      :: !(V1 Core.SoftwareVersion)
+    , setProjectVersion    :: !(V1 Version)
+    , setGitRevision       :: !Text
+    , setMaxTxSize         :: !Byte
+    , setFeePolicy         :: !(V1 Core.TxFeePolicy)
+    , setSecurityParameter :: !SecurityParameter
     } deriving (Show, Eq, Generic)
 
 deriveJSON Aeson.defaultOptions ''NodeSettings
@@ -562,32 +696,53 @@ deriveJSON Aeson.defaultOptions ''NodeSettings
 instance ToSchema NodeSettings where
   declareNamedSchema =
     genericSchemaDroppingPrefix "set" (\(--^) props -> props
-      & ("slotDuration"   --^ "Duration of a slot.")
-      & ("softwareInfo"   --^ "Various pieces of information about the current software.")
-      & ("projectVersion" --^ "Current project's version.")
-      & ("gitRevision"    --^ "Git revision of this deployment.")
+      & ("slotId"             --^ "The current slot and epoch.")
+      & ("slotDuration"       --^ "Duration of a slot.")
+      & ("slotCount"          --^ "The number of slots per epoch.")
+      & ("softwareInfo"       --^ "Various pieces of information about the current software.")
+      & ("projectVersion"     --^ "Current project's version.")
+      & ("gitRevision"        --^ "Git revision of this deployment.")
+      & ("maxTxSize"          --^ "The largest allowed transaction size")
+      & ("feePolicy"          --^ "The fee policy.")
+      & ("securityParameter"  --^ "The security parameter.")
     )
 
 instance Arbitrary NodeSettings where
     arbitrary = NodeSettings <$> arbitrary
                              <*> arbitrary
                              <*> arbitrary
+                             <*> arbitrary
+                             <*> arbitrary
                              <*> pure "0e1c9322a"
+                             <*> arbitrary
+                             <*> arbitrary
+                             <*> arbitrary
 
 instance Example NodeSettings
 
 deriveSafeBuildable ''NodeSettings
 instance BuildableSafeGen NodeSettings where
     buildSafeGen _ NodeSettings{..} = bprint ("{"
+        %" slotId="%build
         %" slotDuration="%build
+        %" slotCount="%build
         %" softwareInfo="%build
         %" projectRevision="%build
         %" gitRevision="%build
+        %" maxTxSize="%build
+        %" feePolicy="%build
+        %" securityParameter="%build
         %" }")
+        setSlotId
         setSlotDuration
+        setSlotCount
         setSoftwareInfo
         setProjectVersion
         setGitRevision
+        setMaxTxSize
+        setFeePolicy
+        setSecurityParameter
+
 
 
 type SettingsAPI =
