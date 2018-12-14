@@ -16285,6 +16285,7 @@ license = stdenv.lib.licenses.mit;
 "cardano-sl-script-runner" = callPackage
 ({
   mkDerivation
+, aeson
 , ansi-wl-pprint
 , base
 , brick
@@ -16305,6 +16306,7 @@ license = stdenv.lib.licenses.mit;
 , constraints
 , containers
 , data-default
+, dns
 , formatting
 , lens
 , lifted-async
@@ -16318,12 +16320,14 @@ license = stdenv.lib.licenses.mit;
 , stm
 , text
 , time
+, time-units
 , transformers
 , turtle
 , universum
 , unix
 , unordered-containers
 , vty
+, yaml
 }:
 mkDerivation {
 
@@ -16333,6 +16337,7 @@ src = ./../script-runner;
 isLibrary = false;
 isExecutable = true;
 executableHaskellDepends = [
+aeson
 ansi-wl-pprint
 base
 brick
@@ -16353,6 +16358,7 @@ conduit
 constraints
 containers
 data-default
+dns
 formatting
 lens
 lifted-async
@@ -16365,12 +16371,14 @@ serokell-util
 stm
 text
 time
+time-units
 transformers
 turtle
 universum
 unix
 unordered-containers
 vty
+yaml
 ];
 doHaddock = false;
 description = "Cardano SL - Script Runner";
