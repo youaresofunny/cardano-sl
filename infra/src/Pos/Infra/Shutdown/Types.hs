@@ -5,8 +5,8 @@ module Pos.Infra.Shutdown.Types
        , shdnIsTriggered, shdnFInjects
        ) where
 
-import           Universum
 import           System.Exit (ExitCode)
+import           Universum
 
 import           Control.Lens (makeLenses)
 import           Pos.Infra.InjectFail (FInjects)

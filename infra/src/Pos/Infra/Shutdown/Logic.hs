@@ -4,10 +4,10 @@ module Pos.Infra.Shutdown.Logic
        , waitForShutdown
        ) where
 
+import           System.Exit (ExitCode (ExitFailure))
 import           Universum
-import           System.Exit (ExitCode(ExitFailure))
 
-import           Control.Concurrent.STM (readTVar, writeTVar, retry)
+import           Control.Concurrent.STM (readTVar, retry, writeTVar)
 
 import           Pos.Infra.InjectFail (FInject (..), testLogFInject)
 import           Pos.Infra.Shutdown.Class (HasShutdownContext (..))
@@ -46,5 +46,5 @@ waitForShutdown (ShutdownContext shutdownTriggered _) = do
       res <- readTVar shutdownTriggered
       case res of
         Nothing -> retry
-        Just a -> pure a
+        Just a  -> pure a
   atomically go

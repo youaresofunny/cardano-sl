@@ -7,8 +7,8 @@
 {-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TemplateHaskell       #-}
 
 module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, HasEpochSlots) where
 
@@ -19,7 +19,7 @@ import           BrickUITypes
 import           Control.Concurrent
 import           Control.Concurrent.Async.Lifted.Safe
 import           Control.Exception (throw)
-import           Control.Lens (to, makeLenses)
+import           Control.Lens (makeLenses, makeLensesWith, to)
 import           Control.Monad.STM (orElse)
 import           Data.Constraint (Dict (Dict))
 import           Data.Default (Default (def))
@@ -30,14 +30,16 @@ import qualified Data.Map as Map
 import           Data.Reflection (Given, give, given)
 import qualified Data.Text as T
 import           Data.Version (showVersion)
-import           Formatting (Format, int, sformat, (%), string)
+import           Formatting (Format, int, sformat, string, (%))
 import           Graphics.Vty (defAttr, defaultConfig, mkVty)
 import           Ntp.Client (NtpConfiguration)
 import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
-                     header, help, helper, info, infoOption, long, progDesc, switch)
+                     header, help, helper, info, infoOption, long, progDesc,
+                     switch)
 import           Paths_cardano_sl (version)
-import           PocMode (AuxxContext (AuxxContext, acRealModeContext, acEventChan), PocMode,
-                     realModeToAuxx, writeBrickChan)
+import           PocMode
+                     (AuxxContext (AuxxContext, acEventChan, acRealModeContext),
+                     PocMode, realModeToAuxx, writeBrickChan)
 import           Pos.Chain.Block (LastKnownHeaderTag)
 import           Pos.Chain.Genesis as Genesis
                      (Config (configGeneratedSecrets, configProtocolMagic),
@@ -68,17 +70,16 @@ import           Pos.Launcher (HasConfigurations, InitModeContext, NodeParams (n
                      NodeResources, WalletConfiguration, bracketNodeResources,
                      loggerBracket, runNode, runRealMode, withConfigurations)
 import           Pos.Util (lensOf, logException)
+import           Pos.Util (postfixLFields)
 import           Pos.Util.CompileInfo (CompileTimeInfo (ctiGitRevision),
                      HasCompileInfo, compileInfo, withCompileInfo)
 import           Pos.Util.UserSecret (readUserSecret, usKeys, usPrimKey, usVss)
 import           Pos.Util.Wlog (LoggerName)
 import           Pos.WorkMode (EmptyMempoolExt, RealMode)
 import           Prelude (show)
-import           Universum hiding (on, state, when)
-import           Control.Lens (makeLensesWith)
-import           Pos.Util (postfixLFields)
-import           System.IO (hSetBuffering, BufferMode(LineBuffering), hPrint)
 import           System.Exit (ExitCode)
+import           System.IO (BufferMode (LineBuffering), hPrint, hSetBuffering)
+import           Universum hiding (on, state, when)
 
 data ScriptRunnerUIMode = BrickUI | PrintUI deriving Show
 

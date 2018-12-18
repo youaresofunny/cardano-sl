@@ -7,32 +7,33 @@ module Main (main) where
 
 import           AutomatedTestRunner
 import           BlockParser ()
+import qualified Data.Aeson as A
+import qualified Data.ByteString.Lazy as BSL
 import           Data.Constraint (Dict (Dict))
 import           Data.Default (def)
 import           Data.Ix (range)
+import qualified Data.Text as T
+import           Data.Time.Units (fromMicroseconds)
 import           Formatting (Format, int, sformat, (%))
-import           NodeControl (NodeHandle, NodeType (..), genSystemStart,
-                     startNode, stopNode, mkTopo, keygen, NodeInfo(..))
+import           NodeControl (NodeHandle, NodeInfo (..), NodeType (..),
+                     genSystemStart, keygen, mkTopo, startNode, stopNode)
 import           PocMode
 import           Pos.Chain.Update (ApplicationName (ApplicationName),
                      BlockVersion (BlockVersion),
                      BlockVersionData (bvdMaxBlockSize, bvdMaxTxSize),
-                     BlockVersionModifier(bvmMaxTxSize), SoftwareVersion (SoftwareVersion))
+                     BlockVersionModifier (bvmMaxTxSize),
+                     SoftwareVersion (SoftwareVersion))
+import qualified Pos.Client.CLI as CLI
+import           Pos.Core (Timestamp (..))
 import           Pos.DB.Class (gsAdoptedBVData)
 import           Pos.Infra.Diffusion.Types (Diffusion)
 import           Pos.Launcher (HasConfigurations, cfoSystemStart_L)
 import           Pos.Util.Wlog (logInfo)
-import           Serokell.Data.Memory.Units (Byte)
-import           Universum hiding (on)
-import qualified Turtle as T
-import qualified Data.Text as T
-import qualified Data.Aeson as A
-import qualified Data.ByteString.Lazy as BSL
-import qualified Pos.Client.CLI as CLI
-import           Pos.Core (Timestamp (..))
 import           Prelude (read)
-import           Data.Time.Units (fromMicroseconds)
-import           System.Exit (ExitCode(ExitSuccess))
+import           Serokell.Data.Memory.Units (Byte)
+import           System.Exit (ExitCode (ExitSuccess))
+import qualified Turtle as T
+import           Universum hiding (on)
 
 printbvd :: Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
 printbvd Dict _diffusion = do

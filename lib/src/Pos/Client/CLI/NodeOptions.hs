@@ -40,15 +40,15 @@ module Pos.Client.CLI.NodeOptions
 
 import           Universum
 
+import           Control.Lens (makeLensesWith)
 import           Data.Version (showVersion)
 import           NeatInterpolation (text)
 import           Options.Applicative (Parser, auto, execParser, footerDoc,
                      fullDesc, header, help, helper, info, infoOption, long,
                      metavar, option, progDesc, showDefault, strOption, switch,
                      value)
-import           Text.PrettyPrint.ANSI.Leijen (Doc)
-import           Control.Lens (makeLensesWith)
 import           Pos.Util (postfixLFields)
+import           Text.PrettyPrint.ANSI.Leijen (Doc)
 
 import           Paths_cardano_sl (version)
 

@@ -49,6 +49,7 @@ import           System.FilePath (takeDirectory)
 
 import           Ntp.Client (NtpConfiguration)
 
+import           Control.Lens (makeLensesWith)
 import           Pos.Chain.Genesis as Genesis (Config (..), GenesisData (..),
                      StaticConfig, canonicalGenesisJson,
                      mkConfigFromStaticConfig, prettyGenesisJson)
@@ -56,11 +57,10 @@ import           Pos.Core (Address, decodeTextAddress)
 import           Pos.Core.Conc (currentTime)
 import           Pos.Core.Slotting (Timestamp (..))
 import           Pos.Crypto (RequiresNetworkMagic (..))
+import           Pos.Util (postfixLFields)
 import           Pos.Util.AssertMode (inAssertMode)
 import           Pos.Util.Config (parseYamlConfig)
 import           Pos.Util.Wlog (WithLogger, logInfo)
-import           Control.Lens (makeLensesWith)
-import           Pos.Util (postfixLFields)
 
 import           Pos.Chain.Block
 import           Pos.Chain.Delegation

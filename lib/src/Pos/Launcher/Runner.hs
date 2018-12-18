@@ -189,7 +189,7 @@ runServer uc genesisConfig NodeParams {..} ekgNodeMetrics shdnContext mkLogic ac
         let
           code = case result of
             Left code' -> code'
-            Right _ -> ExitSuccess
+            Right _    -> ExitSuccess
         exitWith code
     ekgStore = enmStore ekgNodeMetrics
     (hcHost, hcPort) = case npRoute53Params of

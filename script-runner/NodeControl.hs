@@ -1,42 +1,47 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RecordWildCards   #-}
+{-# LANGUAGE TypeApplications  #-}
 
 module NodeControl (NodeHandle, NodeControl.NodeType(..), startNode, stopNode, genSystemStart, mkTopo, keygen, NodeInfo(..)) where
 
 import           Control.Concurrent.Async.Lifted.Safe
+import           Data.Ix (range)
+import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 import           Data.Time (NominalDiffTime, addUTCTime, defaultTimeLocale,
                      formatTime, getCurrentTime)
+import           Data.Time.Units (Second, convertUnit)
+import           Network.Broadcast.OutboundQueue
+                     (MaxBucketSize (BucketSizeUnlimited))
+import           Network.DNS.Types (Domain)
+import qualified Pos.Client.CLI as CLI
+import           Pos.Core.Slotting (Timestamp, getTimestamp)
+import           Pos.Infra.Network.DnsDomains (NodeAddr (..))
+import           Pos.Infra.Network.Types (Fallbacks, NodeName (..),
+                     NodeType (..), Valency)
+import           Pos.Infra.Network.Yaml (AllStaticallyKnownPeers (..),
+                     DnsDomains (..), NodeMetadata (..), NodeRegion (..),
+                     NodeRoutes (..), Topology (..))
+import           Pos.Launcher (ConfigurationOptions, cfoFilePath_L,
+                     cfoSystemStart_L)
 import           Pos.Util.Wlog (logWarning)
 import           System.Posix.Signals
 import           System.Process
 import           Universum hiding (on, state, when)
-import Pos.Infra.Network.Yaml (Topology(..), NodeMetadata(..), NodeRegion(..), NodeRoutes(..), DnsDomains(..), AllStaticallyKnownPeers(..))
-import Pos.Infra.Network.Types (NodeType(..), NodeName(..), Valency, Fallbacks)
-import qualified Data.Map.Strict as M
-import Pos.Infra.Network.DnsDomains (NodeAddr(..))
-import qualified Data.Text as T
-import           Data.Ix (range)
-import Network.Broadcast.OutboundQueue (MaxBucketSize(BucketSizeUnlimited))
-import Network.DNS.Types (Domain)
-import           Pos.Launcher (cfoSystemStart_L, cfoFilePath_L, ConfigurationOptions)
-import           Pos.Core.Slotting (Timestamp, getTimestamp)
-import           Data.Time.Units (Second, convertUnit)
-import qualified Pos.Client.CLI as CLI
 
 data NodeHandle = NodeHandle (Async ()) ProcessHandle
 data NodeInfo = NodeInfo
-            { niIndex :: Integer
-            , niType :: NodeControl.NodeType
-            , stateRoot :: Text
-            , topoPath :: Text
+            { niIndex       :: Integer
+            , niType        :: NodeControl.NodeType
+            , stateRoot     :: Text
+            , topoPath      :: Text
             , niCfgFilePath :: CLI.CommonArgs
             }
 data NodeType = Core | Relay
 
 startingPortOffset :: Num i => NodeControl.NodeType -> i
-startingPortOffset Core = 100
+startingPortOffset Core  = 100
 startingPortOffset Relay = 0
 
 mkTopo :: Integer -> Integer -> Topology
@@ -55,14 +60,14 @@ mkTopo cores relays = do
     mkNodeMeta idx typ = do
       let
         nmType = case typ of
-          Core -> NodeCore
+          Core  -> NodeCore
           Relay -> NodeRelay
         nmAddress :: NodeAddr (Maybe Domain)
         nmAddress = NodeAddrExact "127.0.0.1" (Just $ startingPortOffset typ + 3000 + (fromIntegral idx))
         mkRoute :: Integer -> [ NodeName ]
         mkRoute x = [ NodeName ("core-" <> show x) ]
         nmRoutes = case typ of
-          Core -> NodeRoutes [ [ NodeName "relay-0" ] ]
+          Core  -> NodeRoutes [ [ NodeName "relay-0" ] ]
           Relay -> NodeRoutes $ map mkRoute $ range (0,cores)
       NodeMetadata{..}
     mkCoreTup :: Integer -> (NodeName, NodeMetadata)
@@ -75,7 +80,7 @@ mkTopo cores relays = do
   TopologyStatic $ AllStaticallyKnownPeers $ M.fromList (allCoreNodes <> allRelayNodes)
 
 typeToString :: NodeControl.NodeType -> String
-typeToString Core = "core"
+typeToString Core  = "core"
 typeToString Relay = "relay"
 
 commonNodeParams :: NodeInfo -> [ String ]
@@ -97,7 +102,7 @@ maybeSystemStart Nothing = []
 maybeSystemStart (Just ts) = [ "--system-start", show $ fromIntegral @Second (convertUnit $ getTimestamp ts) ]
 
 maybeLogConfig :: Maybe FilePath -> [ String ]
-maybeLogConfig Nothing = []
+maybeLogConfig Nothing          = []
 maybeLogConfig (Just logconfig) = [ "--log-config", logconfig ]
 
 commonNodeStart :: String -> [ String ] -> NodeControl.NodeType -> Integer -> IO NodeHandle

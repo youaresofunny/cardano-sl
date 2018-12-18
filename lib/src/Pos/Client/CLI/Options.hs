@@ -29,13 +29,13 @@ module Pos.Client.CLI.Options
 
 import           Universum
 
+import           Control.Lens (makeLensesWith)
 import           Data.Default (def)
 import           Data.Time.Units (fromMicroseconds)
 import qualified Options.Applicative as Opt
 import           Options.Applicative.Builder.Internal (HasMetavar, HasName)
-import           Pos.Util.OptParse (fromParsec)
-import           Control.Lens (makeLensesWith)
 import           Pos.Util (postfixLFields)
+import           Pos.Util.OptParse (fromParsec)
 
 import           Pos.Communication (NodeId)
 import           Pos.Core (Timestamp (..))
