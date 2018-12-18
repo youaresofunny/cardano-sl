@@ -229,8 +229,7 @@ rollbackBlocksUnsafe
     -> NewestFirst NE Blund
     -> m ()
 rollbackBlocksUnsafe genesisConfig bsc scb toRollback = do
-    slogRoll <- slogRollbackBlocks (makeNetworkMagic $ configProtocolMagic genesisConfig)
-                                   (configProtocolConstants genesisConfig)
+    slogRoll <- slogRollbackBlocks genesisConfig
                                    bsc
                                    scb
                                    toRollback
