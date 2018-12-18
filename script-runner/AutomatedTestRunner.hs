@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
-module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs_L, Script, HasEpochSlots) where
+module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, HasEpochSlots) where
 
 import           Brick hiding (on)
 import           Brick.BChan
@@ -19,7 +19,7 @@ import           BrickUITypes
 import           Control.Concurrent
 import           Control.Concurrent.Async.Lifted.Safe
 import           Control.Exception (throw)
-import           Control.Lens (to)
+import           Control.Lens (to, makeLenses)
 import           Control.Monad.STM (orElse)
 import           Data.Constraint (Dict (Dict))
 import           Data.Default (Default (def))
@@ -62,7 +62,7 @@ import           Pos.Infra.Diffusion.Types (Diffusion, hoistDiffusion)
 import           Pos.Infra.Network.Types (NetworkConfig (ncDequeuePolicy, ncEnqueuePolicy, ncFailurePolicy, ncTopology),
                      NodeId, Topology (TopologyAuxx), topologyDequeuePolicy,
                      topologyEnqueuePolicy, topologyFailurePolicy)
-import           Pos.Infra.Shutdown (triggerShutdown)
+import           Pos.Infra.Shutdown (triggerShutdown, triggerShutdown')
 import           Pos.Infra.Slotting.Util (defaultOnNewSlotParams, onNewSlot)
 import           Pos.Launcher (HasConfigurations, InitModeContext, NodeParams (npBehaviorConfig, npNetworkConfig, npUserSecret),
                      NodeResources, WalletConfiguration, bracketNodeResources,
@@ -78,16 +78,17 @@ import           Universum hiding (on, state, when)
 import           Control.Lens (makeLensesWith)
 import           Pos.Util (postfixLFields)
 import           System.IO (hSetBuffering, BufferMode(LineBuffering), hPrint)
+import           System.Exit (ExitCode)
 
 data ScriptRunnerUIMode = BrickUI | PrintUI deriving Show
 
 data ScriptRunnerOptions = ScriptRunnerOptions
-  { srCommonNodeArgs :: !CLI.CommonNodeArgs -- ^ Common CLI args for nodes
-  , srPeers          :: ![NodeId]
-  , srUiMode         :: !ScriptRunnerUIMode
+  { _srCommonNodeArgs :: !CLI.CommonNodeArgs -- ^ Common CLI args for nodes
+  , _srPeers          :: ![NodeId]
+  , _srUiMode         :: !ScriptRunnerUIMode
   } deriving Show
 
-makeLensesWith postfixLFields ''ScriptRunnerOptions
+makeLenses ''ScriptRunnerOptions
 
 class TestScript a where
   getScript :: a -> Script
@@ -141,9 +142,9 @@ scriptRunnerOptionsParser = do
     disabledParser :: Parser Bool
     disabledParser = switch $ long "no-brickui" <> help "Disable brick based ui"
   disableBrick <- disabledParser
-  srCommonNodeArgs <- CLI.commonNodeArgsParser
-  srPeers <- many $ CLI.nodeIdOption "peer" "Address of a peer."
-  pure ScriptRunnerOptions{srCommonNodeArgs,srPeers,srUiMode = if disableBrick then PrintUI else BrickUI}
+  _srCommonNodeArgs <- CLI.commonNodeArgsParser
+  _srPeers <- many $ CLI.nodeIdOption "peer" "Address of a peer."
+  pure ScriptRunnerOptions{_srCommonNodeArgs,_srPeers,_srUiMode = if disableBrick then PrintUI else BrickUI}
 
 getScriptRunnerOptions :: HasCompileInfo => IO ScriptRunnerOptions
 getScriptRunnerOptions = execParser programInfo
@@ -161,10 +162,10 @@ loggerName :: LoggerName
 loggerName = "script-runner"
 
 thing :: (TestScript a, HasCompileInfo) => ScriptRunnerOptions -> InputParams a -> IO ()
-thing opts@ScriptRunnerOptions{srCommonNodeArgs} inputParams = do
+thing opts inputParams = do
   let
     conf = CLI.configurationOptions (CLI.commonArgs cArgs)
-    cArgs@CLI.CommonNodeArgs{CLI.cnaDumpGenesisDataPath,CLI.cnaDumpConfiguration} = srCommonNodeArgs
+    cArgs@CLI.CommonNodeArgs{CLI.cnaDumpGenesisDataPath,CLI.cnaDumpConfiguration} = opts ^. srCommonNodeArgs
   withConfigurations Nothing cnaDumpGenesisDataPath cnaDumpConfiguration conf (runWithConfig opts inputParams)
 
 maybeAddPeers :: [NodeId] -> NodeParams -> NodeParams
@@ -183,15 +184,15 @@ addQueuePolicies nodeParams = do
   }
 
 runWithConfig :: (TestScript a, HasCompileInfo, HasConfigurations) => ScriptRunnerOptions -> InputParams a -> Genesis.Config -> WalletConfiguration -> TxpConfiguration -> NtpConfiguration -> IO ()
-runWithConfig ScriptRunnerOptions{srCommonNodeArgs,srPeers} inputParams genesisConfig _walletConfig txpConfig _ntpConfig = do
+runWithConfig opts inputParams genesisConfig _walletConfig txpConfig _ntpConfig = do
   let
     nArgs = CLI.NodeArgs { CLI.behaviorConfigPath = Nothing}
-  (nodeParams', _mSscParams) <- CLI.getNodeParams loggerName srCommonNodeArgs nArgs (configGeneratedSecrets genesisConfig)
+  (nodeParams', _mSscParams) <- CLI.getNodeParams loggerName (opts ^. srCommonNodeArgs) nArgs (configGeneratedSecrets genesisConfig)
   let
-    nodeParams = maybeAddPeers srPeers $ nodeParams'
+    nodeParams = maybeAddPeers (opts ^. srPeers) $ nodeParams'
     epochSlots = configEpochSlots genesisConfig
     vssSK = fromMaybe (error "no user secret given") (npUserSecret nodeParams ^. usVss)
-    sscParams = CLI.gtSscParams srCommonNodeArgs vssSK (npBehaviorConfig nodeParams)
+    sscParams = CLI.gtSscParams (opts ^. srCommonNodeArgs) vssSK (npBehaviorConfig nodeParams)
     thing1 = txpGlobalSettings genesisConfig txpConfig
     thing2 :: ReaderT InitModeContext IO ()
     thing2 = initNodeDBs genesisConfig
@@ -242,7 +243,7 @@ worker2 eventChan diffusion = do
     f Nothing  = Nothing
   liftIO $ do
     writeBChan eventChan $ CENodeInfo $ NodeInfo (getBlockCount localHeight) (getEpochOrSlot localTip) (f globalHeight)
-    threadDelay 10000000
+    threadDelay 100000
   worker2 eventChan diffusion
 
 worker1 :: (HasConfigurations, TestScript a) => Genesis.Config -> a -> BChan CustomEvent -> Diffusion (PocMode) -> PocMode ()
@@ -284,7 +285,7 @@ runScript initialize finalize optionsMutator scriptGetter = withCompileInfo $ do
   opts <- optionsMutator opts'
   (eventChan, replyChan, asyncUi) <- runUI' opts
   let
-    loggingParams = CLI.loggingParams loggerName (srCommonNodeArgs opts)
+    loggingParams = CLI.loggingParams loggerName (opts ^. srCommonNodeArgs)
   loggerBracket "script-runner" loggingParams . logException "script-runner" $ do
     b <- initialize opts
     let
@@ -299,7 +300,7 @@ runScript initialize finalize optionsMutator scriptGetter = withCompileInfo $ do
 
 runUI' :: ScriptRunnerOptions -> IO (BChan CustomEvent, BChan Reply, Async AppState)
 runUI' opts = do
-  case opts ^. srUiMode_L of
+  case opts ^. srUiMode of
     BrickUI -> runUI
     PrintUI -> runDummyUI
 
@@ -317,10 +318,8 @@ runDummyUI = do
       case reply of
         QuitEvent -> pure state
         CESlotStart x -> do
-          print x
           go
         CENodeInfo x -> do
-          print x
           go
   fakesync <- async go
   pure (eventChan, replyChan, fakesync)
@@ -367,10 +366,10 @@ onStartup action = do
   put newsb
   pure ()
 
-endScript :: PocMode ()
-endScript = do
+endScript :: ExitCode -> PocMode ()
+endScript code = do
   writeBrickChan QuitEvent
-  triggerShutdown
+  triggerShutdown' code
 
 on :: (Word64, Word16) -> (Dict HasConfigurations -> Diffusion PocMode -> PocMode ()) -> Example ()
 on (epoch, slot) action = do

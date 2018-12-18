@@ -32,6 +32,7 @@ import qualified Pos.Client.CLI as CLI
 import           Pos.Core (Timestamp (..))
 import           Prelude (read)
 import           Data.Time.Units (fromMicroseconds)
+import           System.Exit (ExitCode(ExitSuccess))
 
 printbvd :: Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
 printbvd Dict _diffusion = do
@@ -55,11 +56,10 @@ test4 stateDir = do
         blockVersionModifier :: BlockVersionModifier
         blockVersionModifier = def -- { bvmMaxTxSize = Just 131072 }
       doUpdate diffusion genesisConfig keyIndex blockVersion softwareVersion blockVersionModifier
-      print ("done?"::String)
   onStartup $ \Dict _diffusion -> loadNKeys stateDir 4
   on (1,10) proposal1
   on (2,10) $ \Dict _diffusion -> do
-    endScript
+    endScript ExitSuccess
   forM_ (range (0,20)) $ \epoch -> on(epoch, 0) printbvd
 
 main :: IO ()
@@ -75,7 +75,7 @@ main = do
       let
         path = stateDir <> "/topology.yaml"
         -- the config for the script-runner is mirrored to the nodes it starts
-        cfg = opts ^. srCommonNodeArgs_L . CLI.commonArgs_L
+        cfg = opts ^. srCommonNodeArgs . CLI.commonArgs_L
       BSL.writeFile (T.unpack path) (A.encode topo)
       keygen (cfg ^. CLI.configurationOptions_L)  stateDir
       corenodes <- forM (range (0,3)) $ \node -> startNode (NodeInfo node Core stateDir path cfg)
@@ -90,7 +90,7 @@ main = do
     optionsMutator optsin = do
       -- sets the systemStart inside the ScriptRunnerOptions to the systemStart generated at the start of main
       return $ optsin
-             & srCommonNodeArgs_L
+             & srCommonNodeArgs
              . CLI.commonArgs_L
              . CLI.configurationOptions_L
              . cfoSystemStart_L
