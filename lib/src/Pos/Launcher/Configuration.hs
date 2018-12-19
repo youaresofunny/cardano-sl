@@ -21,15 +21,24 @@ module Pos.Launcher.Configuration
 
        , dumpGenesisData
 
-       -- Exposed mostly for testing.
-       , readAssetLockedSrcAddrs
+       , ccGenesis_L
+       , ccNtp_L
+       , ccUpdate_L
+       , ccSsc_L
+       , ccDlg_L
+       , ccTxp_L
+       , ccBlock_L
+       , ccNode_L
+       , ccWallet_L
+       , ccReqNetMagic_L
 
        , cfoFilePath_L
        , cfoKey_L
        , cfoSystemStart_L
        , cfoSeed_L
 
-       , ccUpdate_L
+       -- Exposed mostly for testing.
+       , readAssetLockedSrcAddrs
        ) where
 
 import           Universum
@@ -177,6 +186,7 @@ data ConfigurationOptions = ConfigurationOptions
     , cfoSeed        :: !(Maybe Integer)
     } deriving (Show)
 
+makeLensesWith postfixLFields ''Configuration
 makeLensesWith postfixLFields ''ConfigurationOptions
 
 instance FromJSON ConfigurationOptions where
