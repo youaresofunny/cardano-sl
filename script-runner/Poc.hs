@@ -57,8 +57,18 @@ test4 stateDir = do
         blockVersionModifier :: BlockVersionModifier
         blockVersionModifier = def -- { bvmMaxTxSize = Just 131072 }
       doUpdate diffusion genesisConfig keyIndex blockVersion softwareVersion blockVersionModifier
+    proposal2 :: Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
+    proposal2 Dict diffusion = do
+      let
+        keyIndex :: Int
+        keyIndex = 0
+        blockVersion = BlockVersion 0 1 0
+        softwareVersion = SoftwareVersion (ApplicationName "cardano-sl") 1
+        blockVersionModifier :: BlockVersionModifier
+        blockVersionModifier = def { bvmMaxTxSize = Just 131072 }
+      doUpdate diffusion genesisConfig keyIndex blockVersion softwareVersion blockVersionModifier
   onStartup $ \Dict _diffusion -> loadNKeys stateDir 4
-  on (1,10) proposal1
+  on (1,10) proposal2
   on (2,10) $ \Dict _diffusion -> do
     endScript ExitSuccess
   forM_ (range (0,20)) $ \epoch -> on(epoch, 0) printbvd

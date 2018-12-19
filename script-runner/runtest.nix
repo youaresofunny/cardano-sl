@@ -7,6 +7,7 @@ let
     cd $out
     mkdir poc-state
     ${binaryName} --configuration-file ${../lib/configuration.yaml} --db-path poc-state/db --keyfile poc-state/secret.key --log-console-off --log-config ${./log-config.yaml} --logs-prefix poc-state/logs --topology ${./topology-local.yaml} --no-brickui --policies ${../scripts/policies/policy_script-runner.yaml}
+    egrep -r --color=always "Processing of proposal|We'll request data for key Tagged|Ignoring data|Proposal .* is confirmed" poc-state/relay-stdout-0
   '';
 in {
   test1 = runTest "poc";

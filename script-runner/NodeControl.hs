@@ -8,6 +8,9 @@ module NodeControl (NodeHandle, NodeControl.NodeType(..), startNode, stopNode, g
 import           Control.Concurrent.Async.Lifted.Safe
 import           Data.Ix (range)
 import qualified Data.Map.Strict as M
+import qualified Data.Map as Map
+import qualified Data.Yaml as Y
+import Pos.Util.Config (parseYamlConfig)
 import qualified Data.Text as T
 import           Data.Time (NominalDiffTime, addUTCTime, defaultTimeLocale,
                      formatTime, getCurrentTime)
@@ -24,7 +27,7 @@ import           Pos.Infra.Network.Yaml (AllStaticallyKnownPeers (..),
                      DnsDomains (..), NodeMetadata (..), NodeRegion (..),
                      NodeRoutes (..), Topology (..))
 import           Pos.Launcher (ConfigurationOptions, cfoFilePath_L,
-                     cfoSystemStart_L)
+                     cfoSystemStart_L, Configuration)
 import           Pos.Util.Wlog (logWarning)
 import           System.Posix.Signals
 import           System.Process
@@ -157,3 +160,16 @@ keygen cfg stateRoot = do
   (_stdin, _stdout, _stderr, ph) <- createProcess pc
   _ <- waitForProcess ph
   pure ()
+
+mutateConfiguration :: Configuration -> Configuration
+mutateConfiguration cfg = cfg & ccUpdate_L . ccLastKnownBlockVersion_L %~ undefined
+
+mutateConfigurationYaml :: FilePath -> Text -> (Configuration -> Configuration) -> IO ByteString
+mutateConfigurationYaml filepath key mutator = do
+  cfg <- parseYamlConfig filepath key
+  let
+    newcfg = mutator cfg
+    newmap = Map.singleton key newcfg
+    yaml = Y.encode newmap
+  print yaml
+  pure yaml

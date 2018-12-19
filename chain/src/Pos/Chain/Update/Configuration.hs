@@ -15,6 +15,11 @@ module Pos.Chain.Update.Configuration
        , curSoftwareVersion
 
        , currentSystemTag
+
+       , ccApplicationName_L
+       , ccLastKnownBlockVersion_L
+       , ccApplicationVersion_L
+       , ccSystemTag_L
        ) where
 
 import           Universum
@@ -25,8 +30,10 @@ import           Data.Aeson.Options (defaultOptions)
 import           Data.Maybe (fromMaybe)
 import           Data.Reflection (Given (..), give)
 import           Distribution.System (buildArch, buildOS)
+import           Control.Lens (makeLensesWith)
 
 import           Pos.Chain.Update.ApplicationName (ApplicationName)
+import           Pos.Util (postfixLFields)
 import           Pos.Chain.Update.BlockVersion (BlockVersion (..))
 import           Pos.Chain.Update.SoftwareVersion (SoftwareVersion (..))
 import           Pos.Chain.Update.SystemTag (SystemTag (..), archHelper,
@@ -56,6 +63,8 @@ data UpdateConfiguration = UpdateConfiguration
     , ccSystemTag             :: !SystemTag
     }
     deriving (Eq, Generic, Show)
+
+makeLensesWith postfixLFields ''UpdateConfiguration
 
 instance ToJSON UpdateConfiguration where
     toJSON = genericToJSON defaultOptions

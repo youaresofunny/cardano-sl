@@ -28,6 +28,8 @@ module Pos.Launcher.Configuration
        , cfoKey_L
        , cfoSystemStart_L
        , cfoSeed_L
+
+       , ccUpdate_L
        ) where
 
 import           Universum
