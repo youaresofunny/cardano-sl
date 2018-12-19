@@ -31,11 +31,13 @@ import           Formatting (build, sformat, shown, (%))
 import           Serokell.Util (Color (Red), colorize)
 import           Serokell.Util.Verify (formatAllErrors, verResToMonadError)
 
-import           Pos.Chain.Block (Block, Blund, HasSlogGState,
+import           Pos.Chain.Block (Block, Blund, HasSlogGState, LastBlkSlots,
                      LastSlotInfo (..), MainBlock, SlogUndo (..),
                      genBlockLeaders, headerHash, headerHashG,
-                     mainBlockLeaderKey, mainBlockSlot, prevBlockL, verifyBlocks)
-import           Pos.Chain.Genesis as Genesis (Config (..), configEpochSlots,
+                     mainBlockLeaderKey, mainBlockSlot, prevBlockL,
+                     verifyBlocks)
+import           Pos.Chain.Genesis as Genesis (Config (..),
+                     configBlkSecurityParam, configEpochSlots,
                      configGenesisWStakeholders, configK)
 import           Pos.Chain.Update (BlockVersion (..), ConsensusEra (..),
                      ObftConsensusStrictness (..), UpdateConfiguration,
@@ -46,7 +48,8 @@ import           Pos.Core.Chrono (NE, NewestFirst (getNewestFirst),
                      OldestFirst (..), toOldestFirst, _OldestFirst)
 import           Pos.Core.Exception (assertionFailed, reportFatalError)
 import           Pos.Core.NetworkMagic (NetworkMagic (..), makeNetworkMagic)
-import           Pos.Core.Slotting (MonadSlots, HasEpochIndex, SlotCount, SlotId (..))
+import           Pos.Core.Slotting (HasEpochIndex, MonadSlots, SlotCount,
+                     SlotId (..))
 import           Pos.DB (SomeBatchOp (..))
 import           Pos.DB.Block.BListener (MonadBListener (..))
 import qualified Pos.DB.Block.GState.BlockExtra as GS
@@ -182,21 +185,26 @@ slogVerifyBlocks genesisConfig curSlot blocks = runExceptT $ do
                 _ -> pass
         _ -> pass
     -- Do pure block verification.
+    lastSlots <- lift GS.getLastSlots
     let blocksList :: OldestFirst [] Block
         blocksList = OldestFirst (NE.toList (getOldestFirst blocks))
+        lastBlkSlotsAndK :: Maybe (LastBlkSlots, BlockCount)
+        lastBlkSlotsAndK = Just (lastSlots, configBlkSecurityParam genesisConfig)
     verResToMonadError formatAllErrors $
         verifyBlocks
             genesisConfig
             era
+            lastBlkSlotsAndK
             curSlot
             dataMustBeKnown
             adoptedBVD
             leaders
             blocksList
+
     -- Here we need to compute 'SlogUndo'. When we apply a block,
     -- we can remove one of the last slots stored in 'BlockExtra'.
     -- This removed slot must be put into 'SlogUndo'.
-    lastSlots <- lift GS.getLastSlots
+
     -- these slots will be added if we apply all blocks
     let newSlots =
             mapMaybe (toLastSlotInfo (configEpochSlots genesisConfig)) $ toList blocks
