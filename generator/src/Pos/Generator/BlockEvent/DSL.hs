@@ -9,7 +9,7 @@ module Pos.Generator.BlockEvent.DSL
        , BlockRollbackResult(..)
        , BlockRollbackFailure(..)
        , BlockScenario
-       , BlockScenario'
+       , BlockScenario' (..)
        , CheckCount(..)
        , enrichWithSnapshotChecking
        , Chance(..)

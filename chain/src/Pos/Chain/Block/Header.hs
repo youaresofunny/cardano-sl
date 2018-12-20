@@ -20,7 +20,7 @@ module Pos.Chain.Block.Header
 
        , BlockSignature (..)
 
-       , GenericBlockHeader
+       , GenericBlockHeader (..)
        , mkGenericBlockHeaderUnsafe
        , gbhProtocolMagicId
        , gbhPrevBlock

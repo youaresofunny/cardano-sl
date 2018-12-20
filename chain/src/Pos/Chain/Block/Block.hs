@@ -12,7 +12,7 @@ module Pos.Chain.Block.Block
        , verifyBlockInternal
 
        -- * GenericBlock
-       , GenericBlock
+       , GenericBlock (..)
        , mkGenericBlockUnsafe
        , gbHeader
        , gbBody

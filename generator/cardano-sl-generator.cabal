@@ -38,6 +38,7 @@ library
                      , QuickCheck
                      , base
                      , bytestring
+                     , cardano-crypto
                      , cardano-sl
                      , cardano-sl-chain
                      , cardano-sl-chain-test
@@ -118,6 +119,7 @@ test-suite cardano-generator-test
                      , QuickCheck
                      , base
                      , bytestring
+                     , cardano-crypto
                      , cardano-sl
                      , cardano-sl-binary
                      , cardano-sl-chain

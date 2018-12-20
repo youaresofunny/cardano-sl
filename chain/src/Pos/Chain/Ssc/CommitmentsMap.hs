@@ -1,7 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module Pos.Chain.Ssc.CommitmentsMap
-       ( CommitmentsMap (getCommitmentsMap)
+       ( CommitmentsMap (..)
        , mkCommitmentsMap
        , mkCommitmentsMapUnsafe
        ) where

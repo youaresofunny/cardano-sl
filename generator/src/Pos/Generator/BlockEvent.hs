@@ -306,7 +306,8 @@ instance Buildable blund => Buildable (BlockEvent' blund) where
 
 type BlockEvent = BlockEvent' Blund
 
-newtype BlockScenario' blund = BlockScenario [BlockEvent' blund]
+newtype BlockScenario' blund =
+    BlockScenario { unBlockScenario :: [BlockEvent' blund] }
     deriving (Show, Functor, Foldable)
 
 instance Buildable blund => Buildable (BlockScenario' blund) where
