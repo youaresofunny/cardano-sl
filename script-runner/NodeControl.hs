@@ -181,5 +181,4 @@ mutateConfigurationYaml filepath key mutator = do
     newcfg = mutator cfg
     newmap = Map.singleton key newcfg
     yaml = Y.encode newmap
-  print yaml
   pure yaml

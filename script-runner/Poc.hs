@@ -23,8 +23,9 @@ import           PocMode
 import           Pos.Chain.Update (ApplicationName (ApplicationName),
                      BlockVersion (BlockVersion),
                      BlockVersionData (bvdMaxBlockSize, bvdMaxTxSize),
-                     BlockVersionModifier (bvmMaxTxSize),
+                     BlockVersionModifier (bvmMaxTxSize, bvmMaxBlockSize),
                      SoftwareVersion (SoftwareVersion),
+                     ccApplicationVersion_L,
                      ccLastKnownBlockVersion_L)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Core (Timestamp (..))
@@ -49,7 +50,7 @@ printbvd Dict _diffusion = do
   print $ sformat bvdfmt (bvdMaxTxSize bar) (bvdMaxBlockSize bar)
 
 mutateConfiguration :: Configuration -> Configuration
-mutateConfiguration cfg = cfg & ccUpdate_L . ccLastKnownBlockVersion_L .~ BlockVersion 0 1 0
+mutateConfiguration cfg = (cfg & ccUpdate_L . ccLastKnownBlockVersion_L .~ BlockVersion 0 1 0) & ccUpdate_L . ccApplicationVersion_L .~ 1
 
 test4 :: Text -> Example ()
 test4 stateDir = do
@@ -73,13 +74,12 @@ test4 stateDir = do
         blockVersion = BlockVersion 0 1 0
         softwareVersion = SoftwareVersion (ApplicationName "cardano-sl") 1
         blockVersionModifier :: BlockVersionModifier
-        blockVersionModifier = def { bvmMaxTxSize = Just 131072 }
+        blockVersionModifier = def { bvmMaxBlockSize = Just 1000000 }
       doUpdate diffusion genesisConfig keyIndex blockVersion softwareVersion blockVersionModifier
   onStartup $ \Dict _diffusion -> loadNKeys stateDir 4
-  on (1,10) proposal2
-  on (1,14) $ \Dict _diffusion -> do
+  on (1,2) proposal2
+  on (1,6) $ \Dict _diffusion -> do
     opts <- view acScriptOptions
-    print opts
     let
       -- the config for the script-runner is mirrored to the nodes it starts
       cfg = opts ^. srCommonNodeArgs . CLI.commonArgs_L
@@ -90,7 +90,7 @@ test4 stateDir = do
     forM_ (range (0,3)) $ \node -> do
       stopNodeByName (Core, node)
       startNode $ NodeInfo node Core stateDir (stateDir <> "/topology.yaml") cfg2
-  on (2,10) $ \Dict _diffusion -> do
+  on (3,10) $ \Dict _diffusion -> do
     endScript ExitSuccess
   forM_ (range (0,20)) $ \epoch -> on(epoch, 0) printbvd
 
