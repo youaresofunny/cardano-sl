@@ -24,15 +24,14 @@ module Pos.Chain.Update.Configuration
 
 import           Universum
 
-import           Data.Aeson (FromJSON (..), ToJSON (..), genericToJSON,
-                     withObject, (.:), (.:?))
-import           Data.Aeson.Options (defaultOptions)
+import           Data.Aeson (FromJSON (..), ToJSON (..),
+                     withObject, (.:), (.:?), (.=), object)
 import           Data.Maybe (fromMaybe)
 import           Data.Reflection (Given (..), give)
 import           Distribution.System (buildArch, buildOS)
 import           Control.Lens (makeLensesWith)
 
-import           Pos.Chain.Update.ApplicationName (ApplicationName)
+import           Pos.Chain.Update.ApplicationName (ApplicationName(ApplicationName))
 import           Pos.Util (postfixLFields)
 import           Pos.Chain.Update.BlockVersion (BlockVersion (..))
 import           Pos.Chain.Update.SoftwareVersion (SoftwareVersion (..))
@@ -67,7 +66,12 @@ data UpdateConfiguration = UpdateConfiguration
 makeLensesWith postfixLFields ''UpdateConfiguration
 
 instance ToJSON UpdateConfiguration where
-    toJSON = genericToJSON defaultOptions
+    toJSON (UpdateConfiguration (ApplicationName appname) lkbv appver (SystemTag systag)) = object [
+        "applicationName" .= appname
+      , "lastKnownBlockVersion" .= lkbv
+      , "applicationVersion" .= appver
+      , "systemTag" .= systag
+      ]
 
 instance FromJSON UpdateConfiguration where
     parseJSON = withObject "UpdateConfiguration" $ \o -> do
