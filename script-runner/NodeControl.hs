@@ -3,7 +3,7 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeApplications  #-}
 
-module NodeControl (NodeHandle, NodeControl.NodeType(..), startNode, stopNode, genSystemStart, mkTopo, keygen, NodeInfo(..)) where
+module NodeControl (NodeHandle, startNode, stopNode, stopNodeByName, genSystemStart, mkTopo, keygen, NodeInfo(..), mutateConfigurationYaml) where
 
 import           Control.Concurrent.Async.Lifted.Safe
 import           Data.Ix (range)
@@ -32,18 +32,19 @@ import           Pos.Util.Wlog (logWarning)
 import           System.Posix.Signals
 import           System.Process
 import           Universum hiding (on, state, when)
+import PocMode (PocMode, nodeHandles)
+import Types
+import Control.Concurrent.STM.TVar (modifyTVar)
 
-data NodeHandle = NodeHandle (Async ()) ProcessHandle
 data NodeInfo = NodeInfo
             { niIndex       :: Integer
-            , niType        :: NodeControl.NodeType
+            , niType        :: Types.NodeType
             , stateRoot     :: Text
             , topoPath      :: Text
             , niCfgFilePath :: CLI.CommonArgs
             }
-data NodeType = Core | Relay
 
-startingPortOffset :: Num i => NodeControl.NodeType -> i
+startingPortOffset :: Num i => Types.NodeType -> i
 startingPortOffset Core  = 100
 startingPortOffset Relay = 0
 
@@ -59,7 +60,7 @@ mkTopo cores relays = do
     nmKademlia = False
     nmPublicDNS = False
     nmMaxSubscrs = BucketSizeUnlimited
-    mkNodeMeta :: Integer -> NodeControl.NodeType -> NodeMetadata
+    mkNodeMeta :: Integer -> Types.NodeType -> NodeMetadata
     mkNodeMeta idx typ = do
       let
         nmType = case typ of
@@ -82,7 +83,7 @@ mkTopo cores relays = do
     allRelayNodes = map mkRelayTup (range (0, relays))
   TopologyStatic $ AllStaticallyKnownPeers $ M.fromList (allCoreNodes <> allRelayNodes)
 
-typeToString :: NodeControl.NodeType -> String
+typeToString :: Types.NodeType -> String
 typeToString Core  = "core"
 typeToString Relay = "relay"
 
@@ -108,19 +109,24 @@ maybeLogConfig :: Maybe FilePath -> [ String ]
 maybeLogConfig Nothing          = []
 maybeLogConfig (Just logconfig) = [ "--log-config", logconfig ]
 
-commonNodeStart :: String -> [ String ] -> NodeControl.NodeType -> Integer -> IO NodeHandle
+commonNodeStart :: String -> [ String ] -> Types.NodeType -> Integer -> PocMode ()
 commonNodeStart prog args typ idx = do
-  childStdout <- openFile ("poc-state/" <> (typeToString typ) <> "-stdout-" <> show idx) WriteMode
+  let
+    typename = typeToString typ
+  childStdout <- openFile ("poc-state/" <> typename <> "-stdout-" <> show idx) AppendMode
   let
     pc :: CreateProcess
     pc = (proc prog args) { std_out = UseHandle childStdout }
-  (_stdin, _stdout, _stderr, ph) <- createProcess pc
-  later <- async $ do
+  (_stdin, _stdout, _stderr, ph) <- liftIO $ createProcess pc
+  later <- liftIO $ async $ do
     _ <- waitForProcess ph
     pure ()
-  pure $ NodeHandle later ph
+  let
+    hnd = NodeHandle later ph
+  tvar <- nodeHandles
+  atomically $ modifyTVar tvar $ Map.insert (typ, idx) hnd
 
-startNode :: NodeInfo -> IO NodeHandle
+startNode :: NodeInfo -> PocMode ()
 startNode info@(NodeInfo idx Core stateRoot _topoPath _cfg) = do
   let
     params = (commonNodeParams info) <>
@@ -145,6 +151,13 @@ stopNode (NodeHandle _async ph) = do
     Nothing -> do
       logWarning "node already stopped when trying to stop it"
 
+stopNodeByName :: (Types.NodeType, Integer) -> PocMode ()
+stopNodeByName name = do
+  map' <- nodeHandles >>= atomically . readTVar
+  case (Map.lookup name map') of
+    Just hnd -> liftIO $ stopNode hnd
+    Nothing -> logWarning ("node " <> show name <> " not found in node map")
+
 genSystemStart :: NominalDiffTime -> IO String
 genSystemStart offset = formatTime defaultTimeLocale "%s" . addUTCTime offset <$> getCurrentTime
 
@@ -160,9 +173,6 @@ keygen cfg stateRoot = do
   (_stdin, _stdout, _stderr, ph) <- createProcess pc
   _ <- waitForProcess ph
   pure ()
-
-mutateConfiguration :: Configuration -> Configuration
-mutateConfiguration cfg = cfg & ccUpdate_L . ccLastKnownBlockVersion_L %~ undefined
 
 mutateConfigurationYaml :: FilePath -> Text -> (Configuration -> Configuration) -> IO ByteString
 mutateConfigurationYaml filepath key mutator = do

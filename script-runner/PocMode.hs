@@ -17,15 +17,17 @@ module PocMode
          AuxxContext (..)
        , PocMode
        , MonadPocMode
+       , acScriptOptions
 
        -- * Helpers
        , realModeToAuxx
        , writeBrickChan
+       , nodeHandles
        ) where
 
 import           Universum
 
-import           Control.Lens (lens, makeLensesWith)
+import           Control.Lens (lens, makeLenses)
 import           Control.Monad.Reader (withReaderT)
 import           Control.Monad.Trans.Resource (transResourceT)
 import           Data.Conduit (transPipe)
@@ -66,12 +68,14 @@ import           Pos.Infra.Network.Types (HasNodeType (getNodeType),
 import           Pos.Infra.Shutdown (HasShutdownContext (shutdownContext))
 import           Pos.Infra.Slotting.Class (MonadSlots (currentTimeSlotting, getCurrentSlot, getCurrentSlotBlocking, getCurrentSlotInaccurate))
 import           Pos.Launcher (HasConfigurations)
-import           Pos.Util (HasLens (lensOf), postfixLFields)
+import           Pos.Util (HasLens (lensOf))
 import           Pos.Util.CompileInfo (HasCompileInfo)
 import           Pos.Util.LoggerName (HasLoggerName' (loggerName))
 import           Pos.Util.UserSecret (HasUserSecret (userSecret))
 import           Pos.Util.Wlog (HasLoggerName (askLoggerName, modifyLoggerName))
 import           Pos.WorkMode (EmptyMempoolExt, RealMode, RealModeContext)
+
+import Types (NodeHandle, NodeType, ScriptRunnerOptions)
 
 type PocMode = ReaderT AuxxContext IO
 
@@ -79,16 +83,21 @@ class (m ~ PocMode, HasConfigurations, HasCompileInfo) => MonadPocMode m
 instance (HasConfigurations, HasCompileInfo) => MonadPocMode PocMode
 
 data AuxxContext = AuxxContext
-    { acRealModeContext :: !(RealModeContext EmptyMempoolExt)
-    , acEventChan       :: !(BChan CustomEvent)
+    { _acRealModeContext :: !(RealModeContext EmptyMempoolExt)
+    , _acEventChan       :: !(BChan CustomEvent)
+    , _acNodeHandles     :: !(TVar (Map (Types.NodeType,Integer) NodeHandle))
+    , _acScriptOptions   :: !(ScriptRunnerOptions)
     }
 
-makeLensesWith postfixLFields ''AuxxContext
+makeLenses ''AuxxContext
 
 writeBrickChan :: CustomEvent -> PocMode ()
 writeBrickChan event = do
-  chan <- view acEventChan_L
+  chan <- view acEventChan
   liftIO $ writeBChan chan event
+
+nodeHandles :: PocMode (TVar (Map (Types.NodeType,Integer) NodeHandle))
+nodeHandles = view acNodeHandles
 
 ----------------------------------------------------------------------------
 -- Helpers
@@ -96,17 +105,17 @@ writeBrickChan event = do
 
 -- | Turn 'RealMode' action into 'PocMode' action.
 realModeToAuxx :: RealMode EmptyMempoolExt a -> PocMode a
-realModeToAuxx = withReaderT acRealModeContext
+realModeToAuxx = withReaderT _acRealModeContext
 
 ----------------------------------------------------------------------------
 -- Boilerplate instances
 ----------------------------------------------------------------------------
 
 instance HasSscContext AuxxContext where
-    sscContext = acRealModeContext_L . sscContext
+    sscContext = acRealModeContext . sscContext
 
 instance HasPrimaryKey AuxxContext where
-    primaryKey = acRealModeContext_L . primaryKey
+    primaryKey = acRealModeContext . primaryKey
 
 -- | Ignore reports.
 -- FIXME it's a bad sign that we even need this instance.
@@ -121,17 +130,17 @@ instance HasMisbehaviorMetrics AuxxContext where
     misbehaviorMetrics = lens (const Nothing) const
 
 instance HasUserSecret AuxxContext where
-    userSecret = acRealModeContext_L . userSecret
+    userSecret = acRealModeContext . userSecret
 
 instance HasShutdownContext AuxxContext where
-    shutdownContext = acRealModeContext_L . shutdownContext
+    shutdownContext = acRealModeContext . shutdownContext
 
 instance HasNodeContext AuxxContext where
-    nodeContext = acRealModeContext_L . nodeContext
+    nodeContext = acRealModeContext . nodeContext
 
 instance HasSlottingVar AuxxContext where
-    slottingTimestamp = acRealModeContext_L . slottingTimestamp
-    slottingVar = acRealModeContext_L . slottingVar
+    slottingTimestamp = acRealModeContext . slottingTimestamp
+    slottingVar = acRealModeContext . slottingVar
 
 instance HasNodeType AuxxContext where
     getNodeType _ = NodeEdge
@@ -140,16 +149,16 @@ instance {-# OVERLAPPABLE #-}
     HasLens tag (RealModeContext EmptyMempoolExt) r =>
     HasLens tag AuxxContext r
   where
-    lensOf = acRealModeContext_L . lensOf @tag
+    lensOf = acRealModeContext . lensOf @tag
 
 instance HasLoggerName' AuxxContext where
-    loggerName = acRealModeContext_L . loggerName
+    loggerName = acRealModeContext . loggerName
 
 instance HasSlogContext AuxxContext where
-    slogContext = acRealModeContext_L . slogContext
+    slogContext = acRealModeContext . slogContext
 
 instance HasSlogGState AuxxContext where
-    slogGState = acRealModeContext_L . slogGState
+    slogGState = acRealModeContext . slogGState
 
 instance MonadSlotsData ctx PocMode => MonadSlots ctx PocMode where
     getCurrentSlot = realModeToAuxx . getCurrentSlot
@@ -162,7 +171,7 @@ instance {-# OVERLAPPING #-} HasLoggerName PocMode where
     modifyLoggerName f action = do
         auxxCtx <- ask
         let auxxToRealMode :: PocMode a -> RealMode EmptyMempoolExt a
-            auxxToRealMode = withReaderT (\realCtx -> set acRealModeContext_L realCtx auxxCtx)
+            auxxToRealMode = withReaderT (\realCtx -> set acRealModeContext realCtx auxxCtx)
         realModeToAuxx $ modifyLoggerName f $ auxxToRealMode action
 
 instance {-# OVERLAPPING #-} CanJsonLog PocMode where
@@ -207,6 +216,6 @@ instance MonadKeys PocMode where
 type instance MempoolExt PocMode = EmptyMempoolExt
 
 instance MonadTxpLocal PocMode where
-    txpNormalize pm = withReaderT acRealModeContext . txNormalize pm
-    txpProcessTx genesisConfig txpConfig = withReaderT acRealModeContext . txProcessTransaction genesisConfig txpConfig
+    txpNormalize pm = withReaderT _acRealModeContext . txNormalize pm
+    txpProcessTx genesisConfig txpConfig = withReaderT _acRealModeContext . txProcessTransaction genesisConfig txpConfig
 

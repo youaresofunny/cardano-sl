@@ -9,6 +9,7 @@
 {-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 
 module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, HasEpochSlots) where
 
@@ -16,10 +17,10 @@ import           Brick hiding (on)
 import           Brick.BChan
 import           BrickUI
 import           BrickUITypes
-import           Control.Concurrent
+import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async.Lifted.Safe
 import           Control.Exception (throw)
-import           Control.Lens (makeLenses, makeLensesWith, to)
+import           Control.Lens (to)
 import           Control.Monad.STM (orElse)
 import           Data.Constraint (Dict (Dict))
 import           Data.Default (Default (def))
@@ -30,7 +31,7 @@ import qualified Data.Map as Map
 import           Data.Reflection (Given, give, given)
 import qualified Data.Text as T
 import           Data.Version (showVersion)
-import           Formatting (Format, int, sformat, string, (%))
+import           Formatting (Format, int, sformat, string, (%), stext)
 import           Graphics.Vty (defAttr, defaultConfig, mkVty)
 import           Ntp.Client (NtpConfiguration)
 import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
@@ -38,7 +39,7 @@ import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
                      switch)
 import           Paths_cardano_sl (version)
 import           PocMode
-                     (AuxxContext (AuxxContext, acEventChan, acRealModeContext),
+                     (AuxxContext (..),
                      PocMode, realModeToAuxx, writeBrickChan)
 import           Pos.Chain.Block (LastKnownHeaderTag)
 import           Pos.Chain.Genesis as Genesis
@@ -70,7 +71,6 @@ import           Pos.Launcher (HasConfigurations, InitModeContext, NodeParams (n
                      NodeResources, WalletConfiguration, bracketNodeResources,
                      loggerBracket, runNode, runRealMode, withConfigurations)
 import           Pos.Util (lensOf, logException)
-import           Pos.Util (postfixLFields)
 import           Pos.Util.CompileInfo (CompileTimeInfo (ctiGitRevision),
                      HasCompileInfo, compileInfo, withCompileInfo)
 import           Pos.Util.UserSecret (readUserSecret, usKeys, usPrimKey, usVss)
@@ -81,15 +81,7 @@ import           System.Exit (ExitCode)
 import           System.IO (BufferMode (LineBuffering), hPrint, hSetBuffering)
 import           Universum hiding (on, state, when)
 
-data ScriptRunnerUIMode = BrickUI | PrintUI deriving Show
-
-data ScriptRunnerOptions = ScriptRunnerOptions
-  { _srCommonNodeArgs :: !CLI.CommonNodeArgs -- ^ Common CLI args for nodes
-  , _srPeers          :: ![NodeId]
-  , _srUiMode         :: !ScriptRunnerUIMode
-  } deriving Show
-
-makeLenses ''ScriptRunnerOptions
+import Types (ScriptRunnerOptions(..), ScriptRunnerUIMode(..), srCommonNodeArgs, srPeers, srUiMode)
 
 class TestScript a where
   getScript :: a -> Script
@@ -162,17 +154,18 @@ getScriptRunnerOptions = execParser programInfo
 loggerName :: LoggerName
 loggerName = "script-runner"
 
-thing :: (TestScript a, HasCompileInfo) => ScriptRunnerOptions -> InputParams a -> IO ()
-thing opts inputParams = do
+thing :: (TestScript a, HasCompileInfo) => (PocMode ()) -> (PocMode ()) -> ScriptRunnerOptions -> InputParams a -> IO ()
+thing initialize finalize opts inputParams = do
   let
     conf = CLI.configurationOptions (CLI.commonArgs cArgs)
     cArgs@CLI.CommonNodeArgs{CLI.cnaDumpGenesisDataPath,CLI.cnaDumpConfiguration} = opts ^. srCommonNodeArgs
-  withConfigurations Nothing cnaDumpGenesisDataPath cnaDumpConfiguration conf (runWithConfig opts inputParams)
+  withConfigurations Nothing cnaDumpGenesisDataPath cnaDumpConfiguration conf (runWithConfig initialize finalize opts inputParams)
 
 maybeAddPeers :: [NodeId] -> NodeParams -> NodeParams
 maybeAddPeers [] params = params
 maybeAddPeers peers nodeParams = nodeParams { npNetworkConfig = (npNetworkConfig nodeParams) { ncTopology = TopologyAuxx peers } }
 
+-- used with maybeAddPeers to fix default policies after changing topology type
 addQueuePolicies :: NodeParams -> NodeParams
 addQueuePolicies nodeParams = do
   let
@@ -184,8 +177,8 @@ addQueuePolicies nodeParams = do
     }
   }
 
-runWithConfig :: (TestScript a, HasCompileInfo, HasConfigurations) => ScriptRunnerOptions -> InputParams a -> Genesis.Config -> WalletConfiguration -> TxpConfiguration -> NtpConfiguration -> IO ()
-runWithConfig opts inputParams genesisConfig _walletConfig txpConfig _ntpConfig = do
+runWithConfig :: (TestScript a, HasCompileInfo, HasConfigurations) => (PocMode ()) -> (PocMode ()) -> ScriptRunnerOptions -> InputParams a -> Genesis.Config -> WalletConfiguration -> TxpConfiguration -> NtpConfiguration -> IO ()
+runWithConfig initialize finalize opts inputParams genesisConfig _walletConfig txpConfig _ntpConfig = do
   let
     nArgs = CLI.NodeArgs { CLI.behaviorConfigPath = Nothing}
   (nodeParams', _mSscParams) <- CLI.getNodeParams loggerName (opts ^. srCommonNodeArgs) nArgs (configGeneratedSecrets genesisConfig)
@@ -197,29 +190,40 @@ runWithConfig opts inputParams genesisConfig _walletConfig txpConfig _ntpConfig 
     thing1 = txpGlobalSettings genesisConfig txpConfig
     thing2 :: ReaderT InitModeContext IO ()
     thing2 = initNodeDBs genesisConfig
-  script <- liftIO $ withEpochSlots epochSlots genesisConfig (ipScriptGetter inputParams)
   let
-    inputParams' = InputParams2 (ipEventChan inputParams) (ipReplyChan inputParams) script
-  bracketNodeResources genesisConfig nodeParams sscParams thing1 thing2 (thing3 genesisConfig txpConfig inputParams')
+    --scriptGetter2 :: b -> PocMode a
+    scriptGetter2 = withEpochSlots epochSlots genesisConfig ((ipScriptGetter inputParams))
+    inputParams' = InputParams2 (ipEventChan inputParams) (ipReplyChan inputParams) scriptGetter2
+  bracketNodeResources genesisConfig nodeParams sscParams thing1 thing2 (thing3 opts initialize finalize genesisConfig txpConfig inputParams')
 
-thing3 :: (TestScript a, HasCompileInfo, HasConfigurations) => Config -> TxpConfiguration -> InputParams2 a -> NodeResources () -> IO ()
-thing3 genesisConfig txpConfig inputParams nr = do
+thing3 :: (TestScript a, HasCompileInfo, HasConfigurations) => ScriptRunnerOptions -> (PocMode ()) -> (PocMode ()) -> Config -> TxpConfiguration -> InputParams2 a -> NodeResources () -> IO ()
+thing3 opts initialize finalize genesisConfig txpConfig inputParams nr = do
+  handles <- newTVarIO mempty
   let
     toRealMode :: PocMode a -> RealMode EmptyMempoolExt a
     toRealMode auxxAction = do
       realModeContext <- ask
-      lift $ runReaderT auxxAction $ AuxxContext { acRealModeContext = realModeContext, acEventChan = ip2EventChan inputParams }
+      lift $ runReaderT auxxAction $ AuxxContext
+        { _acRealModeContext = realModeContext
+        , _acEventChan = ip2EventChan inputParams
+        , _acNodeHandles = handles
+        , _acScriptOptions = opts
+        }
     thing2 :: Diffusion (RealMode ()) -> RealMode EmptyMempoolExt ()
     thing2 diffusion = toRealMode (thing5 (hoistDiffusion realModeToAuxx toRealMode diffusion))
     thing5 :: Diffusion PocMode -> PocMode ()
-    thing5 = runNode genesisConfig txpConfig nr thing4
-    thing4 :: [ (Text, Diffusion PocMode -> PocMode ()) ]
-    thing4 = workers genesisConfig inputParams
+    thing5 diffusion = do
+      initialize
+      finalscript <- ip2Script inputParams
+      runNode genesisConfig txpConfig nr (thing4 finalscript) diffusion
+      finalize
+    --thing4 :: a -> [ (Text, Diffusion PocMode -> PocMode ()) ]
+    thing4 script = workers script genesisConfig inputParams
   runRealMode updateConfiguration genesisConfig txpConfig nr thing2
 
-workers :: (HasConfigurations, TestScript a) => Genesis.Config -> InputParams2 a -> [ (Text, Diffusion PocMode -> PocMode ()) ]
-workers genesisConfig InputParams2{ip2EventChan,ip2Script,ip2ReplyChan} =
-  [ ( T.pack "worker1", worker1 genesisConfig ip2Script ip2EventChan)
+workers :: (HasConfigurations, TestScript a) => a -> Genesis.Config -> InputParams2 a -> [ (Text, Diffusion PocMode -> PocMode ()) ]
+workers script genesisConfig InputParams2{ip2EventChan,ip2ReplyChan} =
+  [ ( "worker1", worker1 genesisConfig script ip2EventChan)
   , ( "worker2", worker2 ip2EventChan)
   , ( "brick reply worker", brickReplyWorker ip2ReplyChan)
   ]
@@ -272,15 +276,15 @@ worker1 genesisConfig script eventChan diffusion = do
 data TestScript a => InputParams a = InputParams
   { ipEventChan    :: BChan CustomEvent
   , ipReplyChan    :: BChan Reply
-  , ipScriptGetter :: HasEpochSlots => IO a
+  , ipScriptGetter :: HasEpochSlots => PocMode a
   }
 data TestScript a => InputParams2 a = InputParams2
   { ip2EventChan :: BChan CustomEvent
   , ip2ReplyChan :: BChan Reply
-  , ip2Script    :: a
+  , ip2Script    :: PocMode a
   }
 
-runScript :: TestScript a => (ScriptRunnerOptions -> IO b) -> (b -> IO ()) -> (ScriptRunnerOptions -> IO ScriptRunnerOptions) -> (HasEpochSlots => b -> IO a) -> IO ()
+runScript :: TestScript a => (ScriptRunnerOptions -> PocMode ()) -> (PocMode ()) -> (ScriptRunnerOptions -> IO ScriptRunnerOptions) -> (HasEpochSlots => PocMode a) -> IO ()
 runScript initialize finalize optionsMutator scriptGetter = withCompileInfo $ do
   opts' <- getScriptRunnerOptions
   opts <- optionsMutator opts'
@@ -288,14 +292,12 @@ runScript initialize finalize optionsMutator scriptGetter = withCompileInfo $ do
   let
     loggingParams = CLI.loggingParams loggerName (opts ^. srCommonNodeArgs)
   loggerBracket "script-runner" loggingParams . logException "script-runner" $ do
-    b <- initialize opts
     let
-      inputParams = InputParams eventChan replyChan (scriptGetter b)
-    thing opts inputParams
-    finalize b
+      inputParams = InputParams eventChan replyChan scriptGetter
+    thing (initialize opts) finalize opts inputParams
     pure ()
   liftIO $ writeBChan eventChan QuitEvent
-  finalState <- wait asyncUi
+  _finalState <- wait asyncUi
   --print finalState
   pure ()
 
@@ -423,11 +425,11 @@ doUpdate diffusion genesisConfig keyIndex blockVersion softwareVersion blockVers
       putText (sformat ("Update proposal submitted along with votes, upId: "%hashHexF%"\n") upid)
     print updateProposal
 
-loadNKeys :: String -> Integer -> PocMode ()
+loadNKeys :: Text -> Integer -> PocMode ()
 loadNKeys stateDir n = do
   let
-    fmt :: Format r (String -> Integer -> r)
-    fmt = string % "/genesis-keys/generated-keys/rich/key" % int % ".sk"
+    fmt :: Format r (Text -> Integer -> r)
+    fmt = stext % "/genesis-keys/generated-keys/rich/key" % int % ".sk"
     loadKey :: Integer -> PocMode ()
     loadKey x = do
       let
