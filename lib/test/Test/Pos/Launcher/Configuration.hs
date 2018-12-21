@@ -1,12 +1,12 @@
 module Test.Pos.Launcher.Configuration (tests) where
 
 import           Hedgehog (Property)
-import           Universum
 import qualified Hedgehog as H
+import           Universum
 
+import           Test.Pos.Launcher.Gen (genConfiguration, genUpdate)
 import           Test.Pos.Util.Golden (eachOf)
 import           Test.Pos.Util.Tripping (discoverRoundTrip, roundTripsAesonShow)
-import           Test.Pos.Launcher.Gen (genConfiguration, genUpdate)
 
 roundTripConfiguration :: Property
 roundTripConfiguration =

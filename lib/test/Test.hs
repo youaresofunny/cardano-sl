@@ -5,9 +5,9 @@ import           Test.Hspec (hspec)
 import           Spec (spec)
 
 import           Test.Pos.Configuration (defaultTestConf)
+import           Test.Pos.Launcher.Configuration (tests)
 import qualified Test.Pos.Launcher.Json
 import           Test.Pos.Util.Tripping (runTests)
-import           Test.Pos.Launcher.Configuration (tests)
 
 main :: IO ()
 main = do

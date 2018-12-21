@@ -75,7 +75,7 @@ import           Pos.Util.UserSecret (HasUserSecret (userSecret))
 import           Pos.Util.Wlog (HasLoggerName (askLoggerName, modifyLoggerName))
 import           Pos.WorkMode (EmptyMempoolExt, RealMode, RealModeContext)
 
-import Types (NodeHandle, NodeType, ScriptRunnerOptions)
+import           Types (NodeHandle, NodeType, ScriptRunnerOptions)
 
 type PocMode = ReaderT AuxxContext IO
 

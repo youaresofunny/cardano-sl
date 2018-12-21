@@ -6,18 +6,19 @@
 module NodeControl (NodeHandle, startNode, stopNode, stopNodeByName, genSystemStart, mkTopo, keygen, NodeInfo(..), mutateConfigurationYaml) where
 
 import           Control.Concurrent.Async.Lifted.Safe
+import           Control.Concurrent.STM.TVar (modifyTVar)
 import           Data.Ix (range)
-import qualified Data.Map.Strict as M
 import qualified Data.Map as Map
-import qualified Data.Yaml as Y
-import Pos.Util.Config (parseYamlConfig)
+import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import           Data.Time (NominalDiffTime, addUTCTime, defaultTimeLocale,
                      formatTime, getCurrentTime)
 import           Data.Time.Units (Second, convertUnit)
+import qualified Data.Yaml as Y
 import           Network.Broadcast.OutboundQueue
                      (MaxBucketSize (BucketSizeUnlimited))
 import           Network.DNS.Types (Domain)
+import           PocMode (PocMode, nodeHandles)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Core.Slotting (Timestamp, getTimestamp)
 import           Pos.Infra.Network.DnsDomains (NodeAddr (..))
@@ -26,15 +27,14 @@ import           Pos.Infra.Network.Types (Fallbacks, NodeName (..),
 import           Pos.Infra.Network.Yaml (AllStaticallyKnownPeers (..),
                      DnsDomains (..), NodeMetadata (..), NodeRegion (..),
                      NodeRoutes (..), Topology (..))
-import           Pos.Launcher (ConfigurationOptions, cfoFilePath_L,
-                     cfoSystemStart_L, Configuration)
+import           Pos.Launcher (Configuration, ConfigurationOptions,
+                     cfoFilePath_L, cfoSystemStart_L)
+import           Pos.Util.Config (parseYamlConfig)
 import           Pos.Util.Wlog (logWarning)
 import           System.Posix.Signals
 import           System.Process
+import           Types
 import           Universum hiding (on, state, when)
-import PocMode (PocMode, nodeHandles)
-import Types
-import Control.Concurrent.STM.TVar (modifyTVar)
 
 data NodeInfo = NodeInfo
             { niIndex       :: Integer
@@ -156,7 +156,7 @@ stopNodeByName name = do
   map' <- nodeHandles >>= atomically . readTVar
   case (Map.lookup name map') of
     Just hnd -> liftIO $ stopNode hnd
-    Nothing -> logWarning ("node " <> show name <> " not found in node map")
+    Nothing  -> logWarning ("node " <> show name <> " not found in node map")
 
 genSystemStart :: NominalDiffTime -> IO String
 genSystemStart offset = formatTime defaultTimeLocale "%s" . addUTCTime offset <$> getCurrentTime

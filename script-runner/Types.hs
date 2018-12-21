@@ -1,12 +1,12 @@
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TemplateHaskell   #-}
 
 module Types (NodeHandle(..), NodeType(..), ScriptRunnerOptions(..), ScriptRunnerUIMode(..), srCommonNodeArgs, srPeers, srUiMode) where
 
-import Universum
 import           Control.Concurrent.Async.Lifted.Safe
-import           System.Process
 import           Control.Lens (makeLenses, to)
+import           System.Process
+import           Universum
 
 import qualified Pos.Client.CLI as CLI
 import           Pos.Infra.Network.Types (NetworkConfig (ncDequeuePolicy, ncEnqueuePolicy, ncFailurePolicy, ncTopology),

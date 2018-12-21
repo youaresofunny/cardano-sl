@@ -1,22 +1,26 @@
 module Test.Pos.Launcher.Gen where
 
+import           Hedgehog
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
-import           Hedgehog
-import            Universum
+import           Universum
 
-import           Pos.Launcher.Configuration (Configuration(Configuration), WalletConfiguration(WalletConfiguration), ThrottleSettings(ThrottleSettings))
-import           Pos.Chain.Genesis (StaticConfig(GCSrc))
-import           Ntp.Client (NtpConfiguration(NtpConfiguration))
-import           Pos.Chain.Update (UpdateConfiguration(UpdateConfiguration))
-import           Pos.Chain.Ssc (SscConfiguration(SscConfiguration))
-import           Pos.Chain.Delegation (DlgConfiguration(DlgConfiguration))
-import           Pos.Chain.Txp (TxpConfiguration(TxpConfiguration))
-import           Pos.Chain.Block (BlockConfiguration(BlockConfiguration))
-import           Pos.Configuration (NodeConfiguration(NodeConfiguration))
-import           Pos.Crypto.Configuration (RequiresNetworkMagic(RequiresMagic,RequiresNoMagic))
+import           Ntp.Client (NtpConfiguration (NtpConfiguration))
+import           Pos.Chain.Block (BlockConfiguration (BlockConfiguration))
+import           Pos.Chain.Delegation (DlgConfiguration (DlgConfiguration))
+import           Pos.Chain.Genesis (StaticConfig (GCSrc))
+import           Pos.Chain.Ssc (SscConfiguration (SscConfiguration))
+import           Pos.Chain.Txp (TxpConfiguration (TxpConfiguration))
+import           Pos.Chain.Update (UpdateConfiguration (UpdateConfiguration))
+import           Pos.Configuration (NodeConfiguration (NodeConfiguration))
+import           Pos.Crypto.Configuration
+                     (RequiresNetworkMagic (RequiresMagic, RequiresNoMagic))
 import           Pos.Crypto.Hashing (unsafeMkAbstractHash)
-import           Test.Pos.Chain.Update.Gen (genApplicationName, genBlockVersion, genSystemTag)
+import           Pos.Launcher.Configuration (Configuration (Configuration),
+                     ThrottleSettings (ThrottleSettings),
+                     WalletConfiguration (WalletConfiguration))
+import           Test.Pos.Chain.Update.Gen (genApplicationName, genBlockVersion,
+                     genSystemTag)
 
 -- TODO, move a lot of the chain specific generators into cardano-sl-chain
 

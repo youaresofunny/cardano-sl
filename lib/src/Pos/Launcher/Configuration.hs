@@ -44,7 +44,8 @@ module Pos.Launcher.Configuration
 import           Universum
 
 import           Data.Aeson (FromJSON (..), ToJSON (..), genericParseJSON,
-                     genericToJSON, withObject, (.!=), (.:), (.:?), (.=), object)
+                     genericToJSON, object, withObject, (.!=), (.:), (.:?),
+                     (.=))
 import qualified Data.ByteString.Lazy as BSL
 import           Data.Default (Default (..))
 import qualified Data.HashMap.Strict as HM

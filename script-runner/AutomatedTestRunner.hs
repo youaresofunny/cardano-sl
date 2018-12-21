@@ -7,9 +7,9 @@
 {-# LANGUAGE NoImplicitPrelude          #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
 
 module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, HasEpochSlots) where
 
@@ -31,16 +31,15 @@ import qualified Data.Map as Map
 import           Data.Reflection (Given, give, given)
 import qualified Data.Text as T
 import           Data.Version (showVersion)
-import           Formatting (Format, int, sformat, string, (%), stext)
+import           Formatting (Format, int, sformat, stext, string, (%))
 import           Graphics.Vty (defAttr, defaultConfig, mkVty)
 import           Ntp.Client (NtpConfiguration)
 import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
                      header, help, helper, info, infoOption, long, progDesc,
                      switch)
 import           Paths_cardano_sl (version)
-import           PocMode
-                     (AuxxContext (..),
-                     PocMode, realModeToAuxx, writeBrickChan)
+import           PocMode (AuxxContext (..), PocMode, realModeToAuxx,
+                     writeBrickChan)
 import           Pos.Chain.Block (LastKnownHeaderTag)
 import           Pos.Chain.Genesis as Genesis
                      (Config (configGeneratedSecrets, configProtocolMagic),
@@ -81,7 +80,8 @@ import           System.Exit (ExitCode)
 import           System.IO (BufferMode (LineBuffering), hPrint, hSetBuffering)
 import           Universum hiding (on, state, when)
 
-import Types (ScriptRunnerOptions(..), ScriptRunnerUIMode(..), srCommonNodeArgs, srPeers, srUiMode)
+import           Types (ScriptRunnerOptions (..), ScriptRunnerUIMode (..),
+                     srCommonNodeArgs, srPeers, srUiMode)
 
 class TestScript a where
   getScript :: a -> Script

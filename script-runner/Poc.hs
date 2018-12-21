@@ -8,18 +8,18 @@ module Main (main) where
 import           AutomatedTestRunner
 import           BlockParser ()
 import qualified Data.Aeson as A
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import           Data.Constraint (Dict (Dict))
 import           Data.Default (def)
 import           Data.Ix (range)
 import qualified Data.Text as T
 import           Data.Time.Units (fromMicroseconds)
 import           Formatting (Format, int, sformat, (%))
-import           NodeControl (NodeInfo (..), mutateConfigurationYaml,
-                     genSystemStart, keygen, mkTopo, startNode, stopNode, stopNodeByName)
+import           NodeControl (NodeInfo (..), genSystemStart, keygen, mkTopo,
+                     mutateConfigurationYaml, startNode, stopNode,
+                     stopNodeByName)
 import           PocMode
-import Types (NodeType(..))
 import           Pos.Chain.Update (ApplicationName (ApplicationName),
                      BlockVersion (BlockVersion),
                      BlockVersionData (bvdMaxBlockSize, bvdMaxTxSize),
@@ -30,12 +30,14 @@ import qualified Pos.Client.CLI as CLI
 import           Pos.Core (Timestamp (..))
 import           Pos.DB.Class (gsAdoptedBVData)
 import           Pos.Infra.Diffusion.Types (Diffusion)
-import           Pos.Launcher (HasConfigurations, cfoSystemStart_L, Configuration, ccUpdate_L, cfoFilePath_L, cfoKey_L)
+import           Pos.Launcher (Configuration, HasConfigurations, ccUpdate_L,
+                     cfoFilePath_L, cfoKey_L, cfoSystemStart_L)
 import           Pos.Util.Wlog (logInfo)
 import           Prelude (read)
 import           Serokell.Data.Memory.Units (Byte)
 import           System.Exit (ExitCode (ExitSuccess))
 import qualified Turtle as T
+import           Types (NodeType (..))
 import           Universum hiding (on)
 
 printbvd :: Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
