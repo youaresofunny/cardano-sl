@@ -11,32 +11,28 @@ category:            Currency
 build-type:          Simple
 cabal-version:       >=1.10
 
-executable poc
-  main-is:              Poc.hs
-  other-modules:        AutomatedTestRunner
-                        BlockParser
+library
+  hs-source-dirs:      common
+  exposed-modules:      AutomatedTestRunner
+                        Types
                         BrickUI
                         BrickUITypes
-                        NodeControl
                         PocMode
+                        NodeControl
   default-language:    Haskell2010
   build-depends:        base
-                      , ansi-wl-pprint
-                      , brick
                       , aeson
+                      , brick
                       , bytestring
                       , cardano-sl
-                      , cardano-sl-binary
                       , cardano-sl-chain
                       , cardano-sl-client
                       , cardano-sl-core
                       , cardano-sl-crypto
                       , cardano-sl-db
-                      , cardano-sl-generator
                       , cardano-sl-infra
                       , cardano-sl-networking
                       , cardano-sl-util
-                      , cborg
                       , conduit
                       , constraints
                       , containers
@@ -55,13 +51,37 @@ executable poc
                       , text
                       , time
                       , time-units
-                      , transformers
-                      , turtle
                       , universum
                       , unix
                       , unordered-containers
                       , vty
                       , yaml
+  ghc-options:         -Wall -Weverything
+                       -Wno-unsafe -Wno-missing-import-lists
+                       -O2
+
+executable poc
+  main-is:              Poc.hs
+  other-modules:        BlockParser
+  default-language:    Haskell2010
+  build-depends:        base
+                      , bytestring
+                      , universum
+                      , cardano-sl-chain
+                      , cborg
+                      , cardano-sl-script-runner
+                      , cardano-sl-infra
+                      , turtle
+                      , cardano-sl-util
+                      , formatting
+                      , time-units
+                      , data-default
+                      , text
+                      , constraints
+                      , cardano-sl
+                      , cardano-sl-db
+                      , cardano-sl-core
+                      , cardano-sl-binary
   ghc-options:         -threaded -rtsopts
                        -Wall -Weverything
                        -Wno-unsafe -Wno-missing-import-lists

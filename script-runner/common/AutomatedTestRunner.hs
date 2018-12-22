@@ -11,7 +11,7 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
 
-module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, HasEpochSlots) where
+module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, HasEpochSlots, printbvd) where
 
 import           Brick hiding (on)
 import           Brick.BChan
@@ -19,6 +19,8 @@ import           BrickUI
 import           BrickUITypes
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async.Lifted.Safe
+import           Serokell.Data.Memory.Units (Byte)
+import           Pos.DB.Class (gsAdoptedBVData)
 import           Control.Exception (throw)
 import           Control.Lens (to)
 import           Control.Monad.STM (orElse)
@@ -31,7 +33,7 @@ import qualified Data.Map as Map
 import           Data.Reflection (Given, give, given)
 import qualified Data.Text as T
 import           Data.Version (showVersion)
-import           Formatting (Format, int, sformat, stext, string, (%))
+import           Formatting (Format, int, sformat, stext, (%))
 import           Graphics.Vty (defAttr, defaultConfig, mkVty)
 import           Ntp.Client (NtpConfiguration)
 import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
@@ -46,7 +48,7 @@ import           Pos.Chain.Genesis as Genesis
                      configEpochSlots)
 import           Pos.Chain.Txp (TxpConfiguration)
 import           Pos.Chain.Update (BlockVersion, BlockVersionModifier,
-                     SoftwareVersion, SystemTag, UpdateData,
+                     SoftwareVersion, SystemTag, UpdateData, BlockVersionData(bvdMaxTxSize,bvdMaxBlockSize),
                      mkUpdateProposalWSign, updateConfiguration)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Client.KeyStorage (addSecretKey, getSecretKeysPlain)
@@ -441,3 +443,11 @@ loadNKeys stateDir n = do
       let primSk = fromMaybe (error "Primary key not found") (secret' ^. usPrimKey)
       addSecretKey $ noPassEncrypt primSk
   mapM_ loadKey (range (0,n - 1))
+
+printbvd :: Word64 -> Word16 -> Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
+printbvd epoch slot Dict _diffusion = do
+  let
+    bvdfmt :: Format r (Word64 -> Word16 -> Byte -> Byte -> r)
+    bvdfmt = "epoch: "%int%" slot: "%int%" BVD: max-tx: " %int% ", max-block: " %int
+  bar <- gsAdoptedBVData
+  liftIO $ hPrint stderr $ sformat bvdfmt epoch slot (bvdMaxTxSize bar) (bvdMaxBlockSize bar)

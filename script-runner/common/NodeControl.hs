@@ -3,11 +3,13 @@
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TypeApplications  #-}
 
-module NodeControl (NodeHandle, startNode, stopNode, stopNodeByName, genSystemStart, mkTopo, keygen, NodeInfo(..), mutateConfigurationYaml) where
+module NodeControl (NodeHandle, startNode, stopNode, stopNodeByName, genSystemStart, mkTopo, keygen, NodeInfo(..), mutateConfigurationYaml, createNodes, cleanupNodes) where
 
 import           Control.Concurrent.Async.Lifted.Safe
 import           Control.Concurrent.STM.TVar (modifyTVar)
 import           Data.Ix (range)
+import qualified Data.Aeson as A
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as Map
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -30,7 +32,7 @@ import           Pos.Infra.Network.Yaml (AllStaticallyKnownPeers (..),
 import           Pos.Launcher (Configuration, ConfigurationOptions,
                      cfoFilePath_L, cfoSystemStart_L)
 import           Pos.Util.Config (parseYamlConfig)
-import           Pos.Util.Wlog (logWarning)
+import           Pos.Util.Wlog (logWarning, logInfo)
 import           System.Posix.Signals
 import           System.Process
 import           Types
@@ -182,3 +184,20 @@ mutateConfigurationYaml filepath key mutator = do
     newmap = Map.singleton key newcfg
     yaml = Y.encode newmap
   pure yaml
+
+createNodes :: Topology -> Todo -> T.Text -> ScriptRunnerOptions -> PocMode ()
+createNodes topo todo stateDir opts = do
+  let
+    path = stateDir <> "/topology.yaml"
+    -- the config for the script-runner is mirrored to the nodes it starts
+    cfg = opts ^. srCommonNodeArgs . CLI.commonArgs_L
+  liftIO $ do
+    BSL.writeFile (T.unpack path) (A.encode topo)
+    keygen (cfg ^. CLI.configurationOptions_L)  stateDir
+  forM_ (range (0,todoCoreNodes todo - 1)) $ \node -> startNode (NodeInfo node Core stateDir path cfg)
+  forM_ (range (0,0)) $ \node -> startNode (NodeInfo node Relay stateDir path cfg)
+
+cleanupNodes :: PocMode ()
+cleanupNodes = do
+  logInfo "stopping all nodes"
+  nodeHandles >>= atomically . readTVar >>= liftIO . mapM_ stopNode

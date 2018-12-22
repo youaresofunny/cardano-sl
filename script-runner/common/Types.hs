@@ -1,17 +1,15 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE TemplateHaskell   #-}
 
-module Types (NodeHandle(..), NodeType(..), ScriptRunnerOptions(..), ScriptRunnerUIMode(..), srCommonNodeArgs, srPeers, srUiMode) where
+module Types (NodeHandle(..), NodeType(..), ScriptRunnerOptions(..), ScriptRunnerUIMode(..), srCommonNodeArgs, srPeers, srUiMode, Todo(..)) where
 
 import           Control.Concurrent.Async.Lifted.Safe
-import           Control.Lens (makeLenses, to)
+import           Control.Lens (makeLenses)
 import           System.Process
 import           Universum
 
 import qualified Pos.Client.CLI as CLI
-import           Pos.Infra.Network.Types (NetworkConfig (ncDequeuePolicy, ncEnqueuePolicy, ncFailurePolicy, ncTopology),
-                     NodeId, Topology (TopologyAuxx), topologyDequeuePolicy,
-                     topologyEnqueuePolicy, topologyFailurePolicy)
+import           Pos.Infra.Network.Types (NodeId)
 
 data NodeHandle = NodeHandle (Async ()) ProcessHandle
 data NodeType = Core | Relay deriving (Eq, Ord, Show)
@@ -24,3 +22,8 @@ data ScriptRunnerOptions = ScriptRunnerOptions
   } deriving Show
 
 makeLenses ''ScriptRunnerOptions
+
+-- todo, extract this metadata out of the Configuration type
+data Todo = Todo {
+    todoCoreNodes :: Integer
+  } deriving Show
