@@ -5,8 +5,6 @@
 
 module Main (main) where
 
-import           AutomatedTestRunner
-import           BlockParser ()
 import qualified Data.Aeson as A
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -16,16 +14,17 @@ import           Data.Ix (range)
 import qualified Data.Text as T
 import           Data.Time.Units (fromMicroseconds)
 import           Formatting (Format, int, sformat, (%))
-import           NodeControl (NodeInfo (..), genSystemStart, keygen, mkTopo,
-                     mutateConfigurationYaml, startNode, stopNode,
-                     stopNodeByName)
-import           PocMode
+import           Prelude (read)
+import           System.Exit (ExitCode (ExitSuccess))
+import           System.IO (hPrint)
+import qualified Turtle as T
+import           Universum hiding (on)
+
 import           Pos.Chain.Update (ApplicationName (ApplicationName),
                      BlockVersion (BlockVersion),
                      BlockVersionData (bvdMaxBlockSize, bvdMaxTxSize),
-                     BlockVersionModifier (bvmMaxTxSize, bvmMaxBlockSize),
-                     SoftwareVersion (SoftwareVersion),
-                     ccApplicationVersion_L,
+                     BlockVersionModifier (bvmMaxBlockSize, bvmMaxTxSize),
+                     SoftwareVersion (SoftwareVersion), ccApplicationVersion_L,
                      ccLastKnownBlockVersion_L)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Core (Timestamp (..))
@@ -34,20 +33,23 @@ import           Pos.Infra.Diffusion.Types (Diffusion)
 import           Pos.Launcher (Configuration, HasConfigurations, ccUpdate_L,
                      cfoFilePath_L, cfoKey_L, cfoSystemStart_L)
 import           Pos.Util.Wlog (logInfo)
-import           Prelude (read)
 import           Serokell.Data.Memory.Units (Byte)
-import           System.Exit (ExitCode (ExitSuccess))
-import qualified Turtle as T
-import           Types (NodeType (..))
-import           Universum hiding (on)
 
-printbvd :: Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
-printbvd Dict _diffusion = do
+import           AutomatedTestRunner
+import           BlockParser ()
+import           NodeControl (NodeInfo (..), genSystemStart, keygen, mkTopo,
+                     mutateConfigurationYaml, startNode, stopNode,
+                     stopNodeByName)
+import           PocMode
+import           Types (NodeType (..))
+
+printbvd :: Word64 -> Word16 -> Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
+printbvd epoch slot Dict _diffusion = do
   let
-    bvdfmt :: Format r (Byte -> Byte -> r)
-    bvdfmt = "BVD: max-tx: " %int% ", max-block: " %int
+    bvdfmt :: Format r (Word64 -> Word16 -> Byte -> Byte -> r)
+    bvdfmt = "epoch: "%int%" slot: "%int%" BVD: max-tx: " %int% ", max-block: " %int
   bar <- gsAdoptedBVData
-  print $ sformat bvdfmt (bvdMaxTxSize bar) (bvdMaxBlockSize bar)
+  liftIO $ hPrint stderr $ sformat bvdfmt epoch slot (bvdMaxTxSize bar) (bvdMaxBlockSize bar)
 
 mutateConfiguration :: Configuration -> Configuration
 mutateConfiguration cfg = (cfg & ccUpdate_L . ccLastKnownBlockVersion_L .~ BlockVersion 0 1 0) & ccUpdate_L . ccApplicationVersion_L .~ 1
@@ -92,7 +94,9 @@ test4 stateDir = do
       startNode $ NodeInfo node Core stateDir (stateDir <> "/topology.yaml") cfg2
   on (3,10) $ \Dict _diffusion -> do
     endScript ExitSuccess
-  forM_ (range (0,20)) $ \epoch -> on(epoch, 0) printbvd
+  forM_ (range (0,20)) $ \epoch -> do
+    on(epoch, 0) $ printbvd epoch 0
+    on(epoch, 1) $ printbvd epoch 1
 
 main :: IO ()
 main = do
