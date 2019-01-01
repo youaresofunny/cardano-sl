@@ -19,6 +19,7 @@ data UnitOfMeasure =
     | Blocks
     -- | Number of blocks per second.
     | BlocksPerSecond
+    | Bytes
     deriving (Show, Eq)
 
 data MeasuredIn (a :: UnitOfMeasure) b = MeasuredIn b deriving (Eq, Show)

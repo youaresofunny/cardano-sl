@@ -276,7 +276,7 @@ getNodeSettings compileInfo updateConfiguration timestamp slottingVar ns = do
         , setSlotId =
             V1 slotId
         , setMaxTxSize =
-            maxTxSize
+            mkMaxTxSize $ fromIntegral $ maxTxSize
         , setFeePolicy =
             V1 feePolicy
         , setSecurityParameter =

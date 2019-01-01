@@ -26,7 +26,7 @@ getNodeSettings w = liftIO $
         <*> (V1 <$> Node.curSoftwareVersion node)
         <*> pure (V1 version)
         <*> (mkGitRevision <$> Node.compileInfo node)
-        <*> Node.getMaxTxSize node
+        <*> error "TODO"
         <*> (V1 <$> Node.getFeePolicy node)
         <*> Node.getSecurityParameter node
   where

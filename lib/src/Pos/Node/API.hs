@@ -433,6 +433,50 @@ instance BuildableSafeGen SlotDuration where
     buildSafeGen _ (SlotDuration (MeasuredIn w)) =
         bprint (build%"ms") w
 
+-- | How many milliseconds a slot lasts for.
+newtype MaxTxSize = MaxTxSize (MeasuredIn 'Bytes Int)
+    deriving (Show, Eq)
+
+instance ToJSON MaxTxSize where
+    toJSON (MaxTxSize (MeasuredIn s)) =
+        object
+            [ "quantity" .= toJSON s
+            , "unit"     .= String "bytes"
+            ]
+
+instance FromJSON MaxTxSize where
+    parseJSON = withObject "MaxTxSize" $ \o ->
+        mkMaxTxSize <$> o .: "quantity"
+
+mkMaxTxSize :: Int -> MaxTxSize
+mkMaxTxSize = MaxTxSize . MeasuredIn
+
+instance Arbitrary MaxTxSize where
+    arbitrary = mkMaxTxSize <$> arbitrary
+
+deriveSafeBuildable ''MaxTxSize
+instance BuildableSafeGen MaxTxSize where
+    buildSafeGen _ (MaxTxSize (MeasuredIn w)) =
+        bprint (build%"bytes") w
+
+instance ToSchema MaxTxSize where
+    declareNamedSchema _ =
+        pure $ NamedSchema (Just "MaxTxSize") $ mempty
+            & type_ .~ SwaggerObject
+            & required .~ ["quantity"]
+            & properties .~ (mempty
+                & at "quantity" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerNumber
+                    & minimum_ .~ Just 0
+                    )
+                & at "unit" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerString
+                    & enum_ ?~ ["bytes"]
+                    )
+                )
+
+
+
 -- | This deceptively-simple newtype is a wrapper to virtually @all@ the types exposed as
 -- part of this API. The reason is twofold:
 --
@@ -686,7 +730,7 @@ data NodeSettings = NodeSettings
     , setSoftwareInfo      :: !(V1 Core.SoftwareVersion)
     , setProjectVersion    :: !(V1 Version)
     , setGitRevision       :: !Text
-    , setMaxTxSize         :: !Byte
+    , setMaxTxSize         :: !MaxTxSize
     , setFeePolicy         :: !(V1 Core.TxFeePolicy)
     , setSecurityParameter :: !SecurityParameter
     } deriving (Show, Eq, Generic)
