@@ -8,6 +8,7 @@ module Pos.DB.Block.GState.BlockExtra
        ( resolveForwardLink
        , isBlockInMainChain
        , getLastSlots
+       , rollbackLastSlots
        , upgradeLastSlotsVersion
        , getFirstGenesisBlockHash
        , BlockExtraOp (..)
@@ -23,6 +24,7 @@ module Pos.DB.Block.GState.BlockExtra
 import           Universum hiding (init)
 
 import           Data.Conduit (ConduitT, yield)
+import qualified Data.List as List
 import qualified Database.RocksDB as Rocks
 import           Formatting (Format, bprint, build, later, (%), sformat, text)
 import           Serokell.Util.Text (listJson)
@@ -65,6 +67,19 @@ getLastSlots :: forall m . MonadDBRead m => m LastBlkSlots
 getLastSlots =
     gsGetBi lastSlotsKey2 >>=
         maybeThrow (DBMalformed "Last slots v2 not found in the global state DB")
+
+-- | Roll back the required number of slots.
+-- Dropping slots from the lastSlotsKey entry will result in there being less
+-- than `k` (security parameter) entries in the list. However, this is fine
+-- because rollbacks only happen when to remove a short chain and then
+-- immediately add a longer chain.
+rollbackLastSlots :: forall m . MonadDB m => Int -> m ()
+rollbackLastSlots count = do
+    gsGetBi lastSlotsKey2 >>= \case
+        Nothing ->
+            throwM (DBMalformed "rollbackLastSlots: Last slots v2 not found in the global state DB")
+        Just (slots :: OldestFirst [] LastSlotInfo) ->
+            gsPutBi lastSlotsKey2 $ OldestFirst (List.drop count $ getOldestFirst slots)
 
 -- | This function acts as a one time conversion from version 1 to version 2
 -- of the `LastBlkSlots` data type.

@@ -53,6 +53,7 @@ import           Pos.Core.Reporting (MonadReporting)
 import           Pos.DB (MonadDB, MonadDBRead, MonadGState, SomeBatchOp (..))
 import           Pos.DB.Block.BListener (MonadBListener)
 import           Pos.DB.Block.GState.SanityCheck (sanityCheckDB)
+import qualified Pos.DB.Block.GState.BlockExtra as GS
 import           Pos.DB.Block.Slog.Logic (BypassSecurityCheck (..),
                      MonadSlogApply, MonadSlogBase, ShouldCallBListener,
                      slogApplyBlocks, slogRollbackBlocks)
@@ -238,6 +239,7 @@ rollbackBlocksUnsafe genesisConfig bsc scb toRollback = do
         , sscBatch
         , slogRoll
         ]
+    GS.rollbackLastSlots $ length toRollback
     -- After blocks are rolled back it makes sense to recreate the
     -- delegation mempool.
     -- We don't normalize other mempools, because they are normalized

@@ -5,6 +5,7 @@
 
 module Test.Pos.Block.Logic.VarSpec
        ( spec
+       , runTest
        ) where
 
 import           Universum hiding ((<>))
@@ -17,28 +18,30 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Ratio as Ratio
 import           Data.Semigroup ((<>))
 import           Test.Hspec (Spec, beforeAll_, describe)
+import           Test.Hspec.Runner (hspec)
 import           Test.Hspec.QuickCheck (modifyMaxSuccess)
 import           Test.QuickCheck.Gen (Gen (MkGen))
 import           Test.QuickCheck.Monadic (assert, pick, pre)
-import           Test.QuickCheck.Random (QCGen)
+import           Test.QuickCheck.Random (QCGen, mkQCGen)
 
-import           Pos.Chain.Block (Blund, headerHash)
-import           Pos.Chain.Genesis as Genesis (Config (..),
-                     configBootStakeholders, configEpochSlots)
-import           Pos.Chain.Txp (TxpConfiguration)
+import           Pos.Chain.Block
+import           Pos.Chain.Genesis as Genesis
+import           Pos.Chain.Txp
 import           Pos.Core (ProtocolConstants (..), pcBlkSecurityParam)
 import           Pos.Core.Chrono (NE, NewestFirst (..), OldestFirst (..),
                      nonEmptyNewestFirst, nonEmptyOldestFirst,
                      splitAtNewestFirst, toNewestFirst, _NewestFirst)
-import           Pos.Core.Slotting (MonadSlots (getCurrentSlot))
+import           Pos.Core.Slotting
 import           Pos.DB.Block (verifyAndApplyBlocks, verifyBlocksPrefix)
 import           Pos.DB.Pure (dbPureDump)
+
 import           Pos.Generator.BlockEvent.DSL (BlockApplyResult (..),
                      BlockEventGenT, BlockRollbackFailure (..),
-                     BlockRollbackResult (..), BlockScenario, Path, byChance,
-                     emitBlockApply, emitBlockRollback,
-                     enrichWithSnapshotChecking, pathSequence,
-                     runBlockEventGenT)
+                     BlockRollbackResult (..), BlockScenario,
+                     Path, byChance, emitBlockApply,
+                     emitBlockRollback, enrichWithSnapshotChecking,
+                     pathSequence, runBlockEventGenT)
+import           Pos.Generator.BlockEvent (BlockScenario' (..), CheckCount (..))
 import qualified Pos.GState as GS
 import           Pos.Launcher (HasConfigurations)
 import           Pos.Util.Wlog (setupTestLogging)
@@ -54,6 +57,7 @@ import           Test.Pos.Configuration (HasStaticConfigurations,
                      withStaticConfigurations)
 import           Test.Pos.Util.QuickCheck.Property (splitIntoChunks,
                      stopProperty)
+
 
 -- stack test cardano-sl --fast --test-arguments "-m Test.Pos.Chain.Block.Var"
 spec :: Spec
@@ -71,6 +75,64 @@ spec = beforeAll_ setupTestLogging $ withStaticConfigurations $ \txpConfig _ ->
             describe "Fork - short" $ singleForkSpec txpConfig ForkShort
             describe "Fork - medium" $ singleForkSpec txpConfig ForkMedium
             describe "Fork - deep" $ singleForkSpec txpConfig ForkDeep
+
+runTest :: IO ()
+runTest = do
+    setupTestLogging
+    withStaticConfigurations $ \txpConfig _ -> hspec $
+        describe "Erik: Successful sequence" $
+            blockPropertySpec blockEventSuccessDesc $ \genesisConfig -> do
+                (scenario, checkCount) <- genScenario genesisConfig
+                                                        txpConfig
+                                                        325
+                                                        (genSuccessWithForks genesisConfig)
+                when (checkCount <= 0) $ stopProperty $
+                    "No checks were generated, this is a bug in the test suite: " <>
+                    prettyScenario scenario
+
+                putTextLn $ prettyScenario scenario
+
+                runBlockScenarioAndVerify genesisConfig txpConfig scenario
+  where
+    blockEventSuccessDesc =
+        "a sequence of interleaved block applications and rollbacks " <>
+        "results in the original state of the blockchain"
+
+    genScenario
+        :: HasConfigurations
+        => Genesis.Config
+        -> TxpConfiguration
+        -> Int
+        -> BlockEventGenT QCGen BlockTestMode ()
+        -> BlockProperty (BlockScenario, CheckCount)
+    genScenario genesisConfig txpConfig seed m = do
+        print seed
+        (scenario, checkCount) <- enrichWithSnapshotChecking <$> shortblockPropertyScenarioGen
+                                                                    genesisConfig
+                                                                    txpConfig
+                                                                    seed
+                                                                    m
+
+        if length (unBlockScenario scenario) > 20
+            then genScenario genesisConfig txpConfig (seed + 1) m
+            else pure (scenario, checkCount)
+
+    shortblockPropertyScenarioGen
+        :: HasConfigurations
+        => Genesis.Config
+        -> TxpConfiguration
+        -> Int
+        -> BlockEventGenT QCGen BlockTestMode ()
+        -> BlockProperty BlockScenario
+    shortblockPropertyScenarioGen genesisConfig txpConfig seed m = do
+        allSecrets <- getAllSecrets
+        g <- pick $ MkGen $ \_ _ -> mkQCGen seed
+        lift $ flip evalRandT g $ runBlockEventGenT genesisConfig
+                                                    txpConfig
+                                                    allSecrets
+                                                    (configBootStakeholders genesisConfig)
+                                                    m
+
 
 ----------------------------------------------------------------------------
 -- verifyBlocksPrefix
@@ -294,7 +356,7 @@ genSuccessWithForks genesisConfig = do
                             emitBlockRollback BlockRollbackSuccess before
                             generateFork basePath after
                     else do
-                        advance <- getRandomR (1, wiggleRoom)
+                        advance <- getRandomR (1, wiggleRoom `div` 4)
                         relPaths <- OldestFirst <$> replicateM advance generateRelativePath1
                         whenJust (nonEmptyOldestFirst relPaths) $ \relPaths' -> do
                             let
