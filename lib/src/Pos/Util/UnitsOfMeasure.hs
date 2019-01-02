@@ -20,6 +20,8 @@ data UnitOfMeasure =
     -- | Number of blocks per second.
     | BlocksPerSecond
     | Bytes
+    | Ada
+    | AdaPerByte
     deriving (Show, Eq)
 
 data MeasuredIn (a :: UnitOfMeasure) b = MeasuredIn b deriving (Eq, Show)

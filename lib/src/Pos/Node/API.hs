@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP             #-}
 {-# LANGUAGE DataKinds       #-}
+{-# LANGUAGE KindSignatures  #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeOperators   #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
@@ -12,7 +13,7 @@ import           Control.Lens (At, Index, IxValue, at, ix, makePrisms, (?~))
 import           Data.Aeson
 import qualified Data.Aeson.Options as Aeson
 import           Data.Aeson.TH as A
-import           Data.Aeson.Types (Value (..), toJSONKeyText)
+import           Data.Aeson.Types (Parser, Value (..), toJSONKeyText)
 import qualified Data.ByteArray as ByteArray
 import qualified Data.ByteString.Base64 as B64
 import qualified Data.ByteString.Char8 as BC8
@@ -21,6 +22,7 @@ import qualified Data.Map.Strict as Map
 import           Data.Swagger hiding (Example, example)
 import qualified Data.Swagger as S
 import           Data.Swagger.Declare (Declare, look)
+import qualified Data.Swagger.Internal
 import           Data.Swagger.Internal.Schema (GToSchema)
 import           Data.Swagger.Internal.TypeShape (GenericHasSimpleShape,
                      GenericShape)
@@ -460,15 +462,12 @@ instance BuildableSafeGen MaxTxSize where
         bprint (build%"bytes") w
 
 instance ToSchema MaxTxSize where
-    declareNamedSchema _ =
+    declareNamedSchema _ = do
         pure $ NamedSchema (Just "MaxTxSize") $ mempty
             & type_ .~ SwaggerObject
             & required .~ ["quantity"]
             & properties .~ (mempty
-                & at "quantity" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerNumber
-                    & minimum_ .~ Just 0
-                    )
+                & at "quantity" ?~ toSchemaRef (Proxy :: Proxy Int)
                 & at "unit" ?~ (Inline $ mempty
                     & type_ .~ SwaggerString
                     & enum_ ?~ ["bytes"]
@@ -610,22 +609,14 @@ instance ToSchema SecurityParameter where
 
 
 instance ToSchema (V1 Core.SlotId) where
-    declareNamedSchema _ =
-        pure $ NamedSchema (Just "Core.SlotId") $ mempty
+    declareNamedSchema _ = do
+        word64Schema <- declareSchemaRef (Proxy @Word64)
+        word16Schema <- declareSchemaRef (Proxy @Word16)
+        return $ NamedSchema (Just "SlotId") $ mempty
             & type_ .~ SwaggerObject
-            & required .~ ["slot", "epoch"]
             & properties .~ (mempty
-                & at "slot" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerNumber
-                    & maximum_ .~ Just (fromIntegral (maxBound :: Word16))
-                    & minimum_ .~ Just (fromIntegral (minBound :: Word16))
-                    )
-                & at "epoch" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerNumber
-                    & maximum_ .~ Just (fromIntegral (maxBound :: Word64))
-                    & minimum_ .~ Just (fromIntegral (minBound :: Word64))
-                    )
-                )
+                & at "slot" ?~ word16Schema
+                & at "epoch" ?~ word64Schema)
 
 instance ToJSON (V1 Core.SlotId) where
     toJSON (V1 s) =
@@ -648,13 +639,14 @@ instance Arbitrary (V1 Core.TxFeePolicy) where
     arbitrary = fmap V1 arbitrary
 
 
+
 instance ToJSON (V1 Core.TxFeePolicy) where
     toJSON (V1 p) =
         object $ case p of
             Core.TxFeePolicyTxSizeLinear (Core.TxSizeLinear a b) ->
                 [ "tag" .= ("linear" :: String)
-                , "a" .= toJSON a
-                , "b" .= toJSON b
+                , "a" .= toJSONWithUnit AdaPerByte a
+                , "b" .= toJSONWithUnit Ada b
                 ]
             Core.TxFeePolicyUnknown policyTag policyPayload ->
                 [ "tag" .= ("unknown" :: String)
@@ -666,8 +658,10 @@ instance FromJSON (V1 Core.TxFeePolicy) where
     parseJSON j = V1 <$> (withObject "TxFeePolicy" $ \o -> do
         (tag :: String) <- o .: "tag"
         case tag of
-            "linear" ->
-                Core.TxFeePolicyTxSizeLinear <$> parseJSON j
+            "linear" -> do
+                a <- (o .: "a") >>= parseJSONQuantity "Coeff"
+                b <- (o .: "b") >>= parseJSONQuantity "Coeff"
+                return $ Core.TxFeePolicyTxSizeLinear $ Core.TxSizeLinear a b
             "unknown" -> do
                 t <- o .: "unknownTag"
                 p <- o .: "unknownPayload"
@@ -689,12 +683,8 @@ instance ToSchema (V1 Core.TxFeePolicy) where
                     & type_ .~ SwaggerString
                     & enum_ ?~ ["linear", "unknown"]
                     )
-                & at "a" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerNumber
-                    )
-                & at "b" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerNumber
-                    )
+                & at "a" ?~ toSchemaWithUnit AdaPerByte (Proxy @Double)
+                & at "b" ?~ toSchemaWithUnit Ada (Proxy @Double)
                 & at "unknownTag" ?~ (Inline $ mempty
                     & type_ .~ SwaggerNumber
                     )
@@ -719,6 +709,55 @@ instance ToJSON (V1 Core.SlotCount) where
 
 instance FromJSON (V1 Core.SlotCount) where
     parseJSON v = V1 . Core.SlotCount <$> parseJSON v
+
+
+--
+-- Helpers for writing instances for types with units
+--
+
+-- Using a newtype wrapper might have been more elegant in some ways, but the
+-- helpers need different amounts of information.
+
+-- Convert to user-presentable text for the API
+unitToText :: UnitOfMeasure -> Text
+unitToText Bytes           = "bytes"
+unitToText AdaPerByte      = "Ada/byte"
+unitToText Ada             = "Ada"
+unitToText Seconds         = "seconds"
+unitToText Milliseconds    = "milliseconds"
+unitToText Microseconds    = "microseconds"
+unitToText Percentage100   = "percent"
+unitToText Blocks          = "blocks"
+unitToText BlocksPerSecond = "blocks/second"
+
+toJSONWithUnit :: ToJSON a => UnitOfMeasure -> a -> Value
+toJSONWithUnit u a =
+    object
+        [ "unit"     .= unitToText u
+        , "quantity" .= toJSON a
+        ]
+
+-- This function ignores the unit, which might cause confusion.
+parseJSONQuantity :: FromJSON a => String -> Value -> Parser a
+parseJSONQuantity s = withObject s $ \o -> o .: "quantity"
+
+-- assumes there is only one allowed unit
+toSchemaWithUnit
+  :: (HasRequired a1 [a2], HasProperties a1 a3, Monoid a1, Monoid a3,
+      At a3, IsString a2, IsString (Index a3), ToSchema a4,
+      HasType a1 (SwaggerType 'Data.Swagger.Internal.SwaggerKindSchema),
+      IxValue a3 ~ Referenced Schema) =>
+     UnitOfMeasure -> proxy a4 -> Referenced a1
+toSchemaWithUnit unitOfMeasure a = Inline  (mempty
+            & type_ .~ SwaggerObject
+            & required .~ ["quantity"]
+            & properties .~ (mempty
+                & at "quantity" ?~ toSchemaRef a
+                & at "unit" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerString
+                    & enum_ ?~ [String $ unitToText unitOfMeasure]
+                    )
+                ))
 
 -- | The @static@ settings for this wallet node. In particular, we could group
 -- here protocol-related settings like the slot duration, the transaction max size,
@@ -819,3 +858,6 @@ type API =
         Summary "Restart the underlying node software."
         :> "restart-node"
         :> Post '[ValidJSON] NoContent
+
+
+
