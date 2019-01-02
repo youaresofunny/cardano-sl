@@ -84,7 +84,7 @@ runTest = do
             blockPropertySpec blockEventSuccessDesc $ \genesisConfig -> do
                 (scenario, checkCount) <- genScenario genesisConfig
                                                         txpConfig
-                                                        325
+                                                        817263871637
                                                         (genSuccessWithForks genesisConfig)
                 when (checkCount <= 0) $ stopProperty $
                     "No checks were generated, this is a bug in the test suite: " <>
@@ -113,7 +113,7 @@ runTest = do
                                                                     seed
                                                                     m
 
-        if length (unBlockScenario scenario) > 20
+        if length (unBlockScenario scenario) > 13
             then genScenario genesisConfig txpConfig (seed + 1) m
             else pure (scenario, checkCount)
 
