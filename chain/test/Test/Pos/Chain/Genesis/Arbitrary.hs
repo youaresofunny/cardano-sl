@@ -35,8 +35,8 @@ instance Arbitrary TestnetBalanceOptions where
     arbitrary = do
         -- We have at least 2 owned addresses in system so we can send
         -- transactions in block-gen/tests.
-        tboPoors <- choose (1, 100)
-        tboRichmen <- choose (1, 12)
+        tboPoors <- choose (1, 3)
+        tboRichmen <- choose (1, 2)
         tboTotalBalance <- choose (1000, maxCoinVal)
         tboRichmenShare <- choose (0.55, 0.996)
         let tboUseHDAddresses = False
@@ -44,8 +44,8 @@ instance Arbitrary TestnetBalanceOptions where
 
 instance Arbitrary FakeAvvmOptions where
     arbitrary = do
-        faoCount <- choose (0, 10)
-        faoOneBalance <- choose (5, 30)
+        faoCount <- choose (0, 5)
+        faoOneBalance <- choose (1, 10)
         return FakeAvvmOptions {..}
 
 instance Arbitrary GenesisDelegation where

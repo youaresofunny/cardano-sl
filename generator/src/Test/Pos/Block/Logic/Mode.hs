@@ -53,7 +53,7 @@ import           Formatting (bprint, build, formatToString, shown, (%))
 import qualified Formatting.Buildable
 import qualified Prelude
 import           Test.QuickCheck (Arbitrary (..), Gen, Property, forAll,
-                     ioProperty)
+                     ioProperty, scale)
 import           Test.QuickCheck.Monadic (PropertyM, monadic)
 import           Test.QuickCheck.Property (Testable)
 
@@ -163,7 +163,7 @@ instance Arbitrary TestParams where
         return TestParams {..}
 
 genGenesisInitializer :: Gen GenesisInitializer
-genGenesisInitializer = do
+genGenesisInitializer = scale (`div` 200002) $ do
     giTestBalance <- arbitrary
     giFakeAvvmBalance <- arbitrary
     giAvvmBalanceFactor <- arbitrary
@@ -357,7 +357,7 @@ blockPropertyTestable
     => UpdateConfiguration
     -> (Genesis.Config -> BlockProperty a)
     -> Property
-blockPropertyTestable uc = blockPropertyToProperty uc arbitrary
+blockPropertyTestable uc = blockPropertyToProperty uc (scale (`div` 2) arbitrary)
 
 ----------------------------------------------------------------------------
 -- Boilerplate TestInitContext instances
