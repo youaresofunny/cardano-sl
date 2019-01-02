@@ -13,6 +13,7 @@ import           Universum hiding ((<>))
 import           Control.Monad.Random.Strict (MonadRandom (..), RandomGen,
                      evalRandT, uniform)
 import           Data.List (span)
+import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Ratio as Ratio
@@ -83,11 +84,11 @@ runTest = do
     withStaticConfigurations $ \txpConfig _ -> hspecWith (defaultConfig { configQuickCheckSeed = Just 1000 }) $
         describe "Erik: Successful sequence" $
             blockPropertySpec blockEventSuccessDesc $ \genesisConfig -> do
-                (scenario, checkCount) <- genScenario genesisConfig
+                (scenarioX, checkCount) <- genScenario genesisConfig
                                                         txpConfig
                                                         325
                                                         (genSuccessWithForks genesisConfig)
-
+                let scenario = BlockScenario . List.take 5 $ unBlockScenario scenarioX
                 when (length (unBlockScenario scenario) > 10) $
                     stopProperty $ sformat ("Scenario too long: " % string) (show (length (unBlockScenario scenario), unCheckCount checkCount))
                 when (checkCount <= 0) $ stopProperty $
