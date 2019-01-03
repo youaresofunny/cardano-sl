@@ -10,15 +10,18 @@ import           Data.Constraint (Dict (Dict))
 import           Data.Default (def)
 import           Data.Ix (range)
 import qualified Data.Text as T
-import           System.Exit (ExitCode (ExitSuccess))
+import           System.Exit (ExitCode (..))
+import           System.IO (hPutStrLn)
 import           Universum hiding (on)
 
 import           Pos.Chain.Update (ApplicationName (ApplicationName),
                      BlockVersion (BlockVersion),
+                     BlockVersionData (bvdMaxBlockSize),
                      BlockVersionModifier (bvmMaxBlockSize),
                      SoftwareVersion (SoftwareVersion), ccApplicationVersion_L,
                      ccLastKnownBlockVersion_L)
 import qualified Pos.Client.CLI as CLI
+import           Pos.DB.Class (gsAdoptedBVData)
 import           Pos.Infra.Diffusion.Types (Diffusion)
 import           Pos.Launcher (Configuration, HasConfigurations, ccUpdate_L,
                      cfoFilePath_L, cfoKey_L)
@@ -75,7 +78,12 @@ test4 = do
       stopNodeByName (Core, node)
       startNode $ NodeInfo node Core stateDir (stateDir <> "/topology.yaml") cfg2
   on (3,10) $ \Dict _diffusion -> do
-    endScript ExitSuccess
+    bvd <- gsAdoptedBVData
+    case (bvdMaxBlockSize bvd) of
+      1000000 -> endScript ExitSuccess
+      _ -> do
+        liftIO $ hPutStrLn stderr "something went wrong"
+        endScript $ ExitFailure 1
   forM_ (range (0,20)) $ \epoch -> do
     on(epoch, 0) $ printbvd epoch 0
     on(epoch, 1) $ printbvd epoch 1

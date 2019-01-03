@@ -1,13 +1,15 @@
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NoImplicitPrelude     #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TemplateHaskell       #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE NoImplicitPrelude          #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 -- | Execution mode used in Auxx.
 
@@ -20,6 +22,14 @@ module PocMode
        , acScriptOptions
        , acTopology
        , acStatePath
+       , ScriptBuilder(..)
+       , Script(..)
+       , SlotTrigger(..)
+       , Example(..)
+       , ExampleT(runExampleT)
+       , InputParams(..)
+       , InputParams2(..)
+       , ScriptParams(..)
 
        -- * Helpers
        , realModeToAuxx
@@ -29,27 +39,27 @@ module PocMode
 
 import           Universum
 
+import           Brick.BChan (BChan, writeBChan)
 import           Control.Lens (lens, makeLenses)
 import           Control.Monad.Reader (withReaderT)
 import           Control.Monad.Trans.Resource (transResourceT)
 import           Data.Conduit (transPipe)
+import           Data.Constraint (Dict)
+import           Data.Default (Default (def))
+import qualified Data.Map as Map
+import           Prelude (show)
 
-import           Brick.BChan (BChan, writeBChan)
 import           BrickUITypes (CustomEvent)
+
 import           Pos.Chain.Block (HasSlogContext (slogContext),
                      HasSlogGState (slogGState))
+import           Pos.Chain.Genesis as Genesis (Config)
 import           Pos.Chain.Ssc (HasSscContext (sscContext))
 import           Pos.Client.KeyStorage (MonadKeys (modifySecret),
                      MonadKeysRead (getSecret), getSecretDefault,
                      modifySecretDefault)
-import           Pos.Client.Txp.Balances
-                     (MonadBalances (getBalance, getOwnUtxos),
-                     getBalanceFromUtxo, getOwnUtxosGenesis)
-import           Pos.Client.Txp.History
-                     (MonadTxHistory (getBlockHistory, getLocalHistory, saveTx),
-                     getBlockHistoryDefault, getLocalHistoryDefault,
-                     saveTxDefault)
 import           Pos.Context (HasNodeContext (nodeContext))
+import           Pos.Core (SlotCount, SlotId)
 import           Pos.Core (HasPrimaryKey (primaryKey))
 import           Pos.Core.JsonLog (CanJsonLog (jsonLog))
 import           Pos.Core.Reporting (HasMisbehaviorMetrics (misbehaviorMetrics),
@@ -65,6 +75,7 @@ import           Pos.DB.Class
 import           Pos.DB.Txp (MempoolExt,
                      MonadTxpLocal (txpNormalize, txpProcessTx), txNormalize,
                      txProcessTransaction)
+import           Pos.Infra.Diffusion.Types (Diffusion)
 import           Pos.Infra.Network.Types (HasNodeType (getNodeType),
                      NodeType (NodeEdge))
 import           Pos.Infra.Network.Yaml (Topology)
@@ -78,7 +89,8 @@ import           Pos.Util.UserSecret (HasUserSecret (userSecret))
 import           Pos.Util.Wlog (HasLoggerName (askLoggerName, modifyLoggerName))
 import           Pos.WorkMode (EmptyMempoolExt, RealMode, RealModeContext)
 
-import           Types (NodeHandle, NodeType, ScriptRunnerOptions)
+import           BrickUITypes
+import           Types (NodeHandle, NodeType, ScriptRunnerOptions, Todo)
 
 type PocMode = ReaderT AuxxContext IO
 
@@ -95,6 +107,45 @@ data AuxxContext = AuxxContext
     }
 
 makeLenses ''AuxxContext
+
+data SlotTrigger = SlotTrigger (Dict HasConfigurations -> Diffusion PocMode -> PocMode ())
+instance Show SlotTrigger where
+  show _ = "IO ()"
+
+data Script = Script
+  { slotTriggers   :: Map.Map SlotId SlotTrigger
+  , startupActions :: [ SlotTrigger ]
+  } deriving (Show, Generic)
+instance Default Script where def = Script def def
+
+data ScriptBuilder = ScriptBuilder
+  { sbScript        :: Script
+  , sbEpochSlots    :: SlotCount
+  , sbGenesisConfig :: Config
+  }
+
+data ScriptParams = ScriptParams
+  { spScript            :: Example ()
+  , spTodo              :: Todo
+  , spRecentSystemStart :: Bool
+  , spStartCoreAndRelay :: Bool
+  }
+
+data InputParams = InputParams
+  { ipEventChan    :: BChan CustomEvent
+  , ipReplyChan    :: BChan Reply
+  , ipScriptParams :: ScriptParams
+  , ipStatePath    :: Text
+  }
+data InputParams2 = InputParams2
+  { ip2EventChan    :: BChan CustomEvent
+  , ip2ReplyChan    :: BChan Reply
+  , ip2ScriptParams :: ScriptParams
+  , ip2StatePath    :: Text
+  }
+
+newtype ExampleT m a = ExampleT { runExampleT :: StateT ScriptBuilder m a } deriving (Functor, Applicative, Monad, MonadState ScriptBuilder)
+newtype Example a = Example { runExample :: ExampleT (Identity) a } deriving (Applicative, Functor, Monad, MonadState ScriptBuilder)
 
 writeBrickChan :: CustomEvent -> PocMode ()
 writeBrickChan event = do
@@ -202,15 +253,6 @@ instance MonadGState PocMode where
 instance MonadBListener PocMode where
     onApplyBlocks = realModeToAuxx ... onApplyBlocks
     onRollbackBlocks = realModeToAuxx ... onRollbackBlocks
-
-instance MonadBalances PocMode where
-    getOwnUtxos genesisData addrs = getOwnUtxosGenesis genesisData addrs
-    getBalance = getBalanceFromUtxo
-
-instance MonadTxHistory PocMode where
-    getBlockHistory = getBlockHistoryDefault
-    getLocalHistory = getLocalHistoryDefault
-    saveTx = saveTxDefault
 
 instance MonadKeysRead PocMode where
     getSecret = getSecretDefault

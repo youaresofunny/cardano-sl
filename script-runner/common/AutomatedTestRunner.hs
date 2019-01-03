@@ -1,15 +1,14 @@
-{-# LANGUAGE ApplicativeDo              #-}
-{-# LANGUAGE ConstraintKinds            #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE NamedFieldPuns             #-}
-{-# LANGUAGE NoImplicitPrelude          #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE ApplicativeDo       #-}
+{-# LANGUAGE ConstraintKinds     #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE NoImplicitPrelude   #-}
+{-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell     #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, printbvd, ScriptParams(..)) where
 
@@ -34,7 +33,7 @@ import           Graphics.Vty (defAttr, defaultConfig, mkVty)
 import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
                      header, help, helper, info, infoOption, long, progDesc,
                      switch)
-import           Prelude (read, show)
+import           Prelude (read)
 import           System.Exit (ExitCode)
 import           System.IO (BufferMode (LineBuffering), hPrint, hSetBuffering)
 import qualified Turtle as T
@@ -86,35 +85,19 @@ import           Serokell.Data.Memory.Units (Byte)
 import           BrickUI
 import           BrickUITypes
 import           NodeControl (cleanupNodes, createNodes, genSystemStart, mkTopo)
-import           PocMode (AuxxContext (..), PocMode, realModeToAuxx,
+import           PocMode (AuxxContext (..), Example (runExample), Example,
+                     ExampleT (runExampleT), InputParams (..),
+                     InputParams2 (..), PocMode,
+                     Script (slotTriggers, startupActions),
+                     ScriptBuilder (ScriptBuilder, sbEpochSlots, sbGenesisConfig, sbScript),
+                     ScriptParams (..), SlotTrigger (..), realModeToAuxx,
                      writeBrickChan)
-import           Types (ScriptRunnerOptions (..), ScriptRunnerUIMode (..), Todo,
+import           Types (ScriptRunnerOptions (..), ScriptRunnerUIMode (..),
                      srCommonNodeArgs, srPeers, srUiMode)
-
-
-data ScriptBuilder = ScriptBuilder
-  { sbScript        :: Script
-  , sbEpochSlots    :: SlotCount
-  , sbGenesisConfig :: Config
-  }
-
-instance Default Script where def = Script def def
-
-data Script = Script
-  { slotTriggers   :: Map.Map SlotId SlotTrigger
-  , startupActions :: [ SlotTrigger ]
-  } deriving (Show, Generic)
-
-data SlotTrigger = SlotTrigger (Dict HasConfigurations -> Diffusion PocMode -> PocMode ())
-
-instance Show SlotTrigger where
-  show _ = "IO ()"
-
-newtype ExampleT m a = ExampleT { runExampleT :: StateT ScriptBuilder m a } deriving (Functor, Applicative, Monad, MonadState ScriptBuilder)
-newtype Example a = Example { runExample :: ExampleT (Identity) a } deriving (Applicative, Functor, Monad, MonadState ScriptBuilder)
 
 exampleToScript :: SlotCount -> Config -> Example () -> Script
 exampleToScript epochSlots config example = sbScript $ snd $ runIdentity $ runStateT (runExampleT $ runExample example) (ScriptBuilder def epochSlots config)
+
 
 scriptRunnerOptionsParser :: Parser ScriptRunnerOptions
 scriptRunnerOptionsParser = do
@@ -261,26 +244,6 @@ worker1 genesisConfig script eventChan diffusion = do
       onNewSlot (configEpochSlots genesisConfig) defaultOnNewSlotParams handler
       pure ()
   realWorker `catch` errhandler @SomeException
-
-data InputParams = InputParams
-  { ipEventChan    :: BChan CustomEvent
-  , ipReplyChan    :: BChan Reply
-  , ipScriptParams :: ScriptParams
-  , ipStatePath    :: Text
-  }
-data InputParams2 = InputParams2
-  { ip2EventChan    :: BChan CustomEvent
-  , ip2ReplyChan    :: BChan Reply
-  , ip2ScriptParams :: ScriptParams
-  , ip2StatePath    :: Text
-  }
-
-data ScriptParams = ScriptParams
-  { spScript            :: Example ()
-  , spTodo              :: Todo
-  , spRecentSystemStart :: Bool
-  , spStartCoreAndRelay :: Bool
-  }
 
 runScript :: ScriptParams -> IO ()
 runScript sp = T.with (T.mktempdir "/tmp" "script-runner") $ \stateDir -> withCompileInfo $ do
