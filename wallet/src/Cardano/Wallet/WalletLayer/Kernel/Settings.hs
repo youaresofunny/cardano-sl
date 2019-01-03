@@ -14,6 +14,7 @@ import qualified Cardano.Wallet.API.V1.Types as V1
 import qualified Cardano.Wallet.Kernel.Internal as Kernel
 import           Cardano.Wallet.Kernel.NodeStateAdaptor (NodeStateAdaptor)
 import qualified Cardano.Wallet.Kernel.NodeStateAdaptor as Node
+import qualified Pos.Node.API as A
 
 import           Paths_cardano_wallet (version)
 
@@ -26,7 +27,7 @@ getNodeSettings w = liftIO $
         <*> (V1 <$> Node.curSoftwareVersion node)
         <*> pure (V1 version)
         <*> (mkGitRevision <$> Node.compileInfo node)
-        <*> error "TODO"
+        <*> (A.mkMaxTxSize . fromIntegral <$> Node.getMaxTxSize node)
         <*> (V1 <$> Node.getFeePolicy node)
         <*> Node.getSecurityParameter node
   where
