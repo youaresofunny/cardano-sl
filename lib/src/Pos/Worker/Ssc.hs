@@ -100,21 +100,21 @@ sscWorkers
   => Genesis.Config
   -> [ (Text, Diffusion m -> m ()) ]
 sscWorkers genesisConfig =
-    [ ("ssc on new slot", whenOriginalEraWith $ onNewSlotSsc genesisConfig)
-    , ("ssc check for ignored", whenOriginalEraWith $ checkForIgnoredCommitmentsWorker genesisConfig)
+    [ ("ssc on new slot", onNewSlotSsc genesisConfig)
+    , ("ssc check for ignored", checkForIgnoredCommitmentsWorker genesisConfig)
     ]
 
 -- | Wrap a single-argument function in a check which only runs when we are
 -- in the OBFT ConsensusEra.
-whenOriginalEraWith :: (MonadDBRead m, WithLogger m) => (a -> m ()) -> a -> m ()
-whenOriginalEraWith k arg = do
+whenOriginalEra :: (MonadDBRead m, WithLogger m) => m () -> m ()
+whenOriginalEra k = do
     era <- getConsensusEra
     case era of
         Original -> do
-            logDebug $ sformat ("whenOriginalEraWith: we are in era "%shown%"; running SSC") era
-            k arg
+            logDebug $ sformat ("whenOriginalEra: we are in era "%shown%"; running SSC") era
+            k
         OBFT _   ->
-            logDebug $ sformat ("whenOriginalEraWith: we are in era "%shown%"; not running SSC") era
+            logDebug $ sformat ("whenOriginalEra: we are in era "%shown%"; not running SSC") era
 
 shouldParticipate :: SscMode ctx m => BlockVersionData -> EpochIndex -> m Bool
 shouldParticipate genesisBvd epoch = do
@@ -135,15 +135,16 @@ onNewSlotSsc
     -> Diffusion m
     -> m ()
 onNewSlotSsc genesisConfig diffusion = onNewSlot (configEpochSlots genesisConfig) defaultOnNewSlotParams $ \slotId ->
-    recoveryCommGuard (configBlkSecurityParam genesisConfig) "onNewSlot worker in SSC" $ do
-        sscGarbageCollectLocalData slotId
-        whenM (shouldParticipate (configBlockVersionData genesisConfig) $ siEpoch slotId) $ do
-            behavior <- view sscContext >>=
-                (readTVarIO . scBehavior)
-            checkNSendOurCert genesisConfig (sendSscCert diffusion)
-            onNewSlotCommitment genesisConfig slotId (sendSscCommitment diffusion)
-            onNewSlotOpening genesisConfig (sbSendOpening behavior) slotId (sendSscOpening diffusion)
-            onNewSlotShares genesisConfig (sbSendShares behavior) slotId (sendSscShares diffusion)
+    whenOriginalEra $
+        recoveryCommGuard (configBlkSecurityParam genesisConfig) "onNewSlot worker in SSC" $ do
+            sscGarbageCollectLocalData slotId
+            whenM (shouldParticipate (configBlockVersionData genesisConfig) $ siEpoch slotId) $ do
+                behavior <- view sscContext >>=
+                    (readTVarIO . scBehavior)
+                checkNSendOurCert genesisConfig (sendSscCert diffusion)
+                onNewSlotCommitment genesisConfig slotId (sendSscCommitment diffusion)
+                onNewSlotOpening genesisConfig (sbSendOpening behavior) slotId (sendSscOpening diffusion)
+                onNewSlotShares genesisConfig (sbSendShares behavior) slotId (sendSscShares diffusion)
 
 -- CHECK: @checkNSendOurCert
 -- Checks whether 'our' VSS certificate has been announced
@@ -475,7 +476,7 @@ checkForIgnoredCommitmentsWorker genesisConfig _ = do
     counter <- newTVarIO 0
     onNewSlot (configEpochSlots genesisConfig)
               defaultOnNewSlotParams
-              (checkForIgnoredCommitmentsWorkerImpl genesisConfig counter)
+              (whenOriginalEra . checkForIgnoredCommitmentsWorkerImpl genesisConfig counter)
 
 -- This worker checks whether our commitments appear in blocks. This check
 -- is done only if we actually should participate in SSC. It's triggered if
