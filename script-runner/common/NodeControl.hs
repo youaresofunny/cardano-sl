@@ -7,9 +7,9 @@ module NodeControl (NodeHandle, startNode, stopNode, stopNodeByName, genSystemSt
 
 import           Control.Concurrent.Async.Lifted.Safe
 import           Control.Concurrent.STM.TVar (modifyTVar)
-import           Data.Ix (range)
 import qualified Data.Aeson as A
 import qualified Data.ByteString.Lazy as BSL
+import           Data.Ix (range)
 import qualified Data.Map as Map
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
@@ -20,7 +20,7 @@ import qualified Data.Yaml as Y
 import           Network.Broadcast.OutboundQueue
                      (MaxBucketSize (BucketSizeUnlimited))
 import           Network.DNS.Types (Domain)
-import           PocMode (PocMode, nodeHandles)
+import           PocMode (PocMode, acStatePath, acTopology, nodeHandles)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Core.Slotting (Timestamp, getTimestamp)
 import           Pos.Infra.Network.DnsDomains (NodeAddr (..))
@@ -32,7 +32,7 @@ import           Pos.Infra.Network.Yaml (AllStaticallyKnownPeers (..),
 import           Pos.Launcher (Configuration, ConfigurationOptions,
                      cfoFilePath_L, cfoSystemStart_L)
 import           Pos.Util.Config (parseYamlConfig)
-import           Pos.Util.Wlog (logWarning, logInfo)
+import           Pos.Util.Wlog (logInfo, logWarning)
 import           System.Posix.Signals
 import           System.Process
 import           Types
@@ -54,6 +54,7 @@ mkTopo :: Integer -> Integer -> Topology
 mkTopo cores relays = do
   let
     nmRegion = NodeRegion "none"
+    nmSubscribe :: DnsDomains ByteString
     nmSubscribe = DnsDomains []
     nmValency :: Valency
     nmValency = 1
@@ -105,7 +106,10 @@ commonNodeParams (NodeInfo idx typ stateRoot topoPath cfg) = [
 
 maybeSystemStart :: Maybe Timestamp -> [ String ]
 maybeSystemStart Nothing = []
-maybeSystemStart (Just ts) = [ "--system-start", show $ fromIntegral @Second (convertUnit $ getTimestamp ts) ]
+maybeSystemStart (Just ts) = [ "--system-start", show seconds ]
+  where
+    seconds :: Integer
+    seconds = fromIntegral @Second (convertUnit $ getTimestamp ts)
 
 maybeLogConfig :: Maybe FilePath -> [ String ]
 maybeLogConfig Nothing          = []
@@ -185,8 +189,10 @@ mutateConfigurationYaml filepath key mutator = do
     yaml = Y.encode newmap
   pure yaml
 
-createNodes :: Topology -> Todo -> T.Text -> ScriptRunnerOptions -> PocMode ()
-createNodes topo todo stateDir opts = do
+createNodes :: Todo -> ScriptRunnerOptions -> PocMode ()
+createNodes todo opts = do
+  topo <- view acTopology
+  stateDir <- view acStatePath
   let
     path = stateDir <> "/topology.yaml"
     -- the config for the script-runner is mirrored to the nodes it starts

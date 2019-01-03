@@ -7,7 +7,6 @@ module BrickUI (ui, handleEvent) where
 import           Brick hiding (on)
 import qualified Brick.Widgets.Border as B
 import qualified Brick.Widgets.Border.Style as BS
-import qualified Brick.Widgets.Center as C
 import           BrickUITypes
 import           Formatting
 import           Graphics.Vty (Event (EvKey), Key (KChar))

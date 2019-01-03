@@ -11,16 +11,12 @@
 {-# LANGUAGE TemplateHaskell            #-}
 {-# LANGUAGE TypeApplications           #-}
 
-module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, getScript, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, HasEpochSlots, printbvd) where
+module AutomatedTestRunner (Example, getGenesisConfig, loadNKeys, doUpdate, onStartup, on, runScript, ScriptRunnerOptions(..), endScript, srCommonNodeArgs, Script, printbvd, ScriptParams(..)) where
 
 import           Brick hiding (on)
 import           Brick.BChan
-import           BrickUI
-import           BrickUITypes
 import           Control.Concurrent (threadDelay)
 import           Control.Concurrent.Async.Lifted.Safe
-import           Serokell.Data.Memory.Units (Byte)
-import           Pos.DB.Class (gsAdoptedBVData)
 import           Control.Exception (throw)
 import           Control.Lens (to)
 import           Control.Monad.STM (orElse)
@@ -30,36 +26,43 @@ import qualified Data.HashMap.Strict as HM
 import           Data.Ix (range)
 import           Data.List ((!!))
 import qualified Data.Map as Map
-import           Data.Reflection (Given, give, given)
 import qualified Data.Text as T
+import           Data.Time.Units (fromMicroseconds)
 import           Data.Version (showVersion)
 import           Formatting (Format, int, sformat, stext, (%))
 import           Graphics.Vty (defAttr, defaultConfig, mkVty)
-import           Ntp.Client (NtpConfiguration)
 import           Options.Applicative (Parser, execParser, footerDoc, fullDesc,
                      header, help, helper, info, infoOption, long, progDesc,
                      switch)
+import           Prelude (read, show)
+import           System.Exit (ExitCode)
+import           System.IO (BufferMode (LineBuffering), hPrint, hSetBuffering)
+import qualified Turtle as T
+import           Universum hiding (on, state, when)
+
+import           Ntp.Client (NtpConfiguration)
 import           Paths_cardano_sl (version)
-import           PocMode (AuxxContext (..), PocMode, realModeToAuxx,
-                     writeBrickChan)
 import           Pos.Chain.Block (LastKnownHeaderTag)
 import           Pos.Chain.Genesis as Genesis
                      (Config (configGeneratedSecrets, configProtocolMagic),
                      configEpochSlots)
 import           Pos.Chain.Txp (TxpConfiguration)
-import           Pos.Chain.Update (BlockVersion, BlockVersionModifier,
-                     SoftwareVersion, SystemTag, UpdateData, BlockVersionData(bvdMaxTxSize,bvdMaxBlockSize),
-                     mkUpdateProposalWSign, updateConfiguration)
+import           Pos.Chain.Update (BlockVersion,
+                     BlockVersionData (bvdMaxBlockSize, bvdMaxTxSize),
+                     BlockVersionModifier, SoftwareVersion, SystemTag,
+                     UpdateData, mkUpdateProposalWSign, updateConfiguration)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Client.KeyStorage (addSecretKey, getSecretKeysPlain)
 import           Pos.Client.Update.Network (submitUpdateProposal)
 import           Pos.Core (EpochIndex (EpochIndex), LocalSlotIndex, SlotCount,
-                     SlotId (SlotId, siEpoch, siSlot), difficultyL,
-                     getBlockCount, getChainDifficulty, getEpochIndex,
-                     getEpochOrSlot, getSlotIndex, mkLocalSlotIndex)
+                     SlotId (SlotId, siEpoch, siSlot), Timestamp (Timestamp),
+                     difficultyL, getBlockCount, getChainDifficulty,
+                     getEpochIndex, getEpochOrSlot, getSlotIndex,
+                     mkLocalSlotIndex)
 import           Pos.Crypto (emptyPassphrase, hash, hashHexF, noPassEncrypt,
                      withSafeSigners)
 import           Pos.DB.BlockIndex (getTipHeader)
+import           Pos.DB.Class (gsAdoptedBVData)
 import           Pos.DB.DB (initNodeDBs)
 import           Pos.DB.Txp (txpGlobalSettings)
 import           Pos.Infra.Diffusion.Types (Diffusion, hoistDiffusion)
@@ -70,23 +73,24 @@ import           Pos.Infra.Shutdown (triggerShutdown, triggerShutdown')
 import           Pos.Infra.Slotting.Util (defaultOnNewSlotParams, onNewSlot)
 import           Pos.Launcher (HasConfigurations, InitModeContext, NodeParams (npBehaviorConfig, npNetworkConfig, npUserSecret),
                      NodeResources, WalletConfiguration, bracketNodeResources,
-                     loggerBracket, runNode, runRealMode, withConfigurations)
+                     cfoSystemStart_L, loggerBracket, runNode, runRealMode,
+                     withConfigurations)
 import           Pos.Util (lensOf, logException)
 import           Pos.Util.CompileInfo (CompileTimeInfo (ctiGitRevision),
                      HasCompileInfo, compileInfo, withCompileInfo)
 import           Pos.Util.UserSecret (readUserSecret, usKeys, usPrimKey, usVss)
 import           Pos.Util.Wlog (LoggerName)
 import           Pos.WorkMode (EmptyMempoolExt, RealMode)
-import           Prelude (show)
-import           System.Exit (ExitCode)
-import           System.IO (BufferMode (LineBuffering), hPrint, hSetBuffering)
-import           Universum hiding (on, state, when)
+import           Serokell.Data.Memory.Units (Byte)
 
-import           Types (ScriptRunnerOptions (..), ScriptRunnerUIMode (..),
+import           BrickUI
+import           BrickUITypes
+import           NodeControl (cleanupNodes, createNodes, genSystemStart, mkTopo)
+import           PocMode (AuxxContext (..), PocMode, realModeToAuxx,
+                     writeBrickChan)
+import           Types (ScriptRunnerOptions (..), ScriptRunnerUIMode (..), Todo,
                      srCommonNodeArgs, srPeers, srUiMode)
 
-class TestScript a where
-  getScript :: a -> Script
 
 data ScriptBuilder = ScriptBuilder
   { sbScript        :: Script
@@ -109,27 +113,8 @@ instance Show SlotTrigger where
 newtype ExampleT m a = ExampleT { runExampleT :: StateT ScriptBuilder m a } deriving (Functor, Applicative, Monad, MonadState ScriptBuilder)
 newtype Example a = Example { runExample :: ExampleT (Identity) a } deriving (Applicative, Functor, Monad, MonadState ScriptBuilder)
 
-instance HasEpochSlots => TestScript (Example a) where
-  getScript action = do
-    let
-      script :: ScriptBuilder
-      script = snd $ runIdentity $ runStateT (runExampleT $ runExample action) (ScriptBuilder def getEpochSlots getEpochSlots')
-    sbScript script
-
-instance TestScript Script where
-  getScript = identity
-
-data EpochSlots = EpochSlots { epochSlots :: SlotCount, config :: Config }
-type HasEpochSlots = Given EpochSlots
-
-getEpochSlots :: HasEpochSlots => SlotCount
-getEpochSlots = epochSlots given
-
-getEpochSlots' :: HasEpochSlots => Config
-getEpochSlots' = config given
-
-withEpochSlots :: SlotCount -> Config -> (HasEpochSlots => a) -> a
-withEpochSlots epochSlots genesisConfig = give (EpochSlots epochSlots genesisConfig)
+exampleToScript :: SlotCount -> Config -> Example () -> Script
+exampleToScript epochSlots config example = sbScript $ snd $ runIdentity $ runStateT (runExampleT $ runExample example) (ScriptBuilder def epochSlots config)
 
 scriptRunnerOptionsParser :: Parser ScriptRunnerOptions
 scriptRunnerOptionsParser = do
@@ -156,16 +141,16 @@ getScriptRunnerOptions = execParser programInfo
 loggerName :: LoggerName
 loggerName = "script-runner"
 
-thing :: (TestScript a, HasCompileInfo) => (PocMode ()) -> (PocMode ()) -> ScriptRunnerOptions -> InputParams a -> IO ()
-thing initialize finalize opts inputParams = do
+thing :: HasCompileInfo => ScriptRunnerOptions -> InputParams -> IO ()
+thing opts inputParams = do
   let
     conf = CLI.configurationOptions (CLI.commonArgs cArgs)
     cArgs@CLI.CommonNodeArgs{CLI.cnaDumpGenesisDataPath,CLI.cnaDumpConfiguration} = opts ^. srCommonNodeArgs
-  withConfigurations Nothing cnaDumpGenesisDataPath cnaDumpConfiguration conf (runWithConfig initialize finalize opts inputParams)
+  withConfigurations Nothing cnaDumpGenesisDataPath cnaDumpConfiguration conf (runWithConfig opts inputParams)
 
 maybeAddPeers :: [NodeId] -> NodeParams -> NodeParams
 maybeAddPeers [] params = params
-maybeAddPeers peers nodeParams = nodeParams { npNetworkConfig = (npNetworkConfig nodeParams) { ncTopology = TopologyAuxx peers } }
+maybeAddPeers peers nodeParams = addQueuePolicies $ nodeParams { npNetworkConfig = (npNetworkConfig nodeParams) { ncTopology = TopologyAuxx peers } }
 
 -- used with maybeAddPeers to fix default policies after changing topology type
 addQueuePolicies :: NodeParams -> NodeParams
@@ -179,28 +164,28 @@ addQueuePolicies nodeParams = do
     }
   }
 
-runWithConfig :: (TestScript a, HasCompileInfo, HasConfigurations) => (PocMode ()) -> (PocMode ()) -> ScriptRunnerOptions -> InputParams a -> Genesis.Config -> WalletConfiguration -> TxpConfiguration -> NtpConfiguration -> IO ()
-runWithConfig initialize finalize opts inputParams genesisConfig _walletConfig txpConfig _ntpConfig = do
+runWithConfig :: (HasCompileInfo, HasConfigurations) => ScriptRunnerOptions -> InputParams -> Genesis.Config -> WalletConfiguration -> TxpConfiguration -> NtpConfiguration -> IO ()
+runWithConfig opts inputParams genesisConfig _walletConfig txpConfig _ntpConfig = do
   let
     nArgs = CLI.NodeArgs { CLI.behaviorConfigPath = Nothing}
   (nodeParams', _mSscParams) <- CLI.getNodeParams loggerName (opts ^. srCommonNodeArgs) nArgs (configGeneratedSecrets genesisConfig)
   let
     nodeParams = maybeAddPeers (opts ^. srPeers) $ nodeParams'
-    epochSlots = configEpochSlots genesisConfig
     vssSK = fromMaybe (error "no user secret given") (npUserSecret nodeParams ^. usVss)
     sscParams = CLI.gtSscParams (opts ^. srCommonNodeArgs) vssSK (npBehaviorConfig nodeParams)
     thing1 = txpGlobalSettings genesisConfig txpConfig
     thing2 :: ReaderT InitModeContext IO ()
     thing2 = initNodeDBs genesisConfig
   let
-    --scriptGetter2 :: b -> PocMode a
-    scriptGetter2 = withEpochSlots epochSlots genesisConfig ((ipScriptGetter inputParams))
-    inputParams' = InputParams2 (ipEventChan inputParams) (ipReplyChan inputParams) scriptGetter2
-  bracketNodeResources genesisConfig nodeParams sscParams thing1 thing2 (thing3 opts initialize finalize genesisConfig txpConfig inputParams')
+    inputParams' = InputParams2 (ipEventChan inputParams) (ipReplyChan inputParams) (ipScriptParams inputParams) (ipStatePath inputParams)
+  bracketNodeResources genesisConfig nodeParams sscParams thing1 thing2 (thing3 opts genesisConfig txpConfig inputParams')
 
-thing3 :: (TestScript a, HasCompileInfo, HasConfigurations) => ScriptRunnerOptions -> (PocMode ()) -> (PocMode ()) -> Config -> TxpConfiguration -> InputParams2 a -> NodeResources () -> IO ()
-thing3 opts initialize finalize genesisConfig txpConfig inputParams nr = do
+thing3 :: (HasCompileInfo, HasConfigurations) => ScriptRunnerOptions -> Config -> TxpConfiguration -> InputParams2 -> NodeResources () -> IO ()
+thing3 opts genesisConfig txpConfig inputParams nr = do
   handles <- newTVarIO mempty
+  let
+    -- cores run from 0-3, relays run from 0-0
+    topo = mkTopo 3 0
   let
     toRealMode :: PocMode a -> RealMode EmptyMempoolExt a
     toRealMode auxxAction = do
@@ -210,20 +195,23 @@ thing3 opts initialize finalize genesisConfig txpConfig inputParams nr = do
         , _acEventChan = ip2EventChan inputParams
         , _acNodeHandles = handles
         , _acScriptOptions = opts
+        , _acTopology = topo
+        , _acStatePath = ip2StatePath inputParams
         }
     thing2 :: Diffusion (RealMode ()) -> RealMode EmptyMempoolExt ()
     thing2 diffusion = toRealMode (thing5 (hoistDiffusion realModeToAuxx toRealMode diffusion))
     thing5 :: Diffusion PocMode -> PocMode ()
     thing5 diffusion = do
-      initialize
-      finalscript <- ip2Script inputParams
+      createNodes (spTodo $ ip2ScriptParams inputParams) opts
+      let epochSlots = configEpochSlots genesisConfig
+      let finalscript = (exampleToScript epochSlots genesisConfig . spScript . ip2ScriptParams) inputParams
       runNode genesisConfig txpConfig nr (thing4 finalscript) diffusion
-      finalize
-    --thing4 :: a -> [ (Text, Diffusion PocMode -> PocMode ()) ]
+      cleanupNodes
+    thing4 :: Script -> [ (Text, Diffusion PocMode -> PocMode ()) ]
     thing4 script = workers script genesisConfig inputParams
   runRealMode updateConfiguration genesisConfig txpConfig nr thing2
 
-workers :: (HasConfigurations, TestScript a) => a -> Genesis.Config -> InputParams2 a -> [ (Text, Diffusion PocMode -> PocMode ()) ]
+workers :: HasConfigurations => Script -> Genesis.Config -> InputParams2 -> [ (Text, Diffusion PocMode -> PocMode ()) ]
 workers script genesisConfig InputParams2{ip2EventChan,ip2ReplyChan} =
   [ ( "worker1", worker1 genesisConfig script ip2EventChan)
   , ( "worker2", worker2 ip2EventChan)
@@ -253,50 +241,65 @@ worker2 eventChan diffusion = do
     threadDelay 100000
   worker2 eventChan diffusion
 
-worker1 :: (HasConfigurations, TestScript a) => Genesis.Config -> a -> BChan CustomEvent -> Diffusion (PocMode) -> PocMode ()
+worker1 :: HasConfigurations => Genesis.Config -> Script -> BChan CustomEvent -> Diffusion (PocMode) -> PocMode ()
 worker1 genesisConfig script eventChan diffusion = do
   let
     handler :: SlotId -> PocMode ()
     handler slotid = do
       liftIO $ writeBChan eventChan $ CESlotStart $ SlotStart (getEpochIndex $ siEpoch slotid) (getSlotIndex $ siSlot slotid)
-      case Map.lookup slotid (slotTriggers realScript) of
+      case Map.lookup slotid (slotTriggers script) of
         Just (SlotTrigger act) -> runAction act
         Nothing                -> pure ()
       pure ()
-    realScript = getScript script
     errhandler :: Show e => e -> PocMode ()
     errhandler e = print e
     runAction :: (Dict HasConfigurations -> Diffusion PocMode -> PocMode ()) -> PocMode ()
     runAction act = do
       act Dict diffusion `catch` errhandler @SomeException
     realWorker = do
-      mapM_ (\(SlotTrigger act) -> runAction act) (startupActions realScript)
+      mapM_ (\(SlotTrigger act) -> runAction act) (startupActions script)
       onNewSlot (configEpochSlots genesisConfig) defaultOnNewSlotParams handler
       pure ()
   realWorker `catch` errhandler @SomeException
 
-data TestScript a => InputParams a = InputParams
+data InputParams = InputParams
   { ipEventChan    :: BChan CustomEvent
   , ipReplyChan    :: BChan Reply
-  , ipScriptGetter :: HasEpochSlots => PocMode a
+  , ipScriptParams :: ScriptParams
+  , ipStatePath    :: Text
   }
-data TestScript a => InputParams2 a = InputParams2
-  { ip2EventChan :: BChan CustomEvent
-  , ip2ReplyChan :: BChan Reply
-  , ip2Script    :: PocMode a
+data InputParams2 = InputParams2
+  { ip2EventChan    :: BChan CustomEvent
+  , ip2ReplyChan    :: BChan Reply
+  , ip2ScriptParams :: ScriptParams
+  , ip2StatePath    :: Text
   }
 
-runScript :: TestScript a => (ScriptRunnerOptions -> PocMode ()) -> (PocMode ()) -> (ScriptRunnerOptions -> IO ScriptRunnerOptions) -> (HasEpochSlots => PocMode a) -> IO ()
-runScript initialize finalize optionsMutator scriptGetter = withCompileInfo $ do
+data ScriptParams = ScriptParams
+  { spScript            :: Example ()
+  , spTodo              :: Todo
+  , spRecentSystemStart :: Bool
+  , spStartCoreAndRelay :: Bool
+  }
+
+runScript :: ScriptParams -> IO ()
+runScript sp = T.with (T.mktempdir "/tmp" "script-runner") $ \stateDir -> withCompileInfo $ do
+  systemStart <- genSystemStart 10
+  let
+    systemStartTs :: Timestamp
+    systemStartTs = Timestamp $ fromMicroseconds $ (read systemStart) * 1000000
   opts' <- getScriptRunnerOptions
-  opts <- optionsMutator opts'
+  let
+    opts = if (spRecentSystemStart sp)
+      then setSystemStartMutator systemStartTs opts'
+      else opts'
   (eventChan, replyChan, asyncUi) <- runUI' opts
   let
     loggingParams = CLI.loggingParams loggerName (opts ^. srCommonNodeArgs)
   loggerBracket "script-runner" loggingParams . logException "script-runner" $ do
     let
-      inputParams = InputParams eventChan replyChan scriptGetter
-    thing (initialize opts) finalize opts inputParams
+      inputParams = InputParams eventChan replyChan sp (T.pack $ T.encodeString stateDir)
+    thing opts inputParams
     pure ()
   liftIO $ writeBChan eventChan QuitEvent
   _finalState <- wait asyncUi
@@ -322,9 +325,9 @@ runDummyUI = do
       reply <- liftIO $ readBChan eventChan
       case reply of
         QuitEvent -> pure state
-        CESlotStart x -> do
+        CESlotStart _ -> do
           go
-        CENodeInfo x -> do
+        CENodeInfo _ -> do
           go
   fakesync <- async go
   pure (eventChan, replyChan, fakesync)
@@ -451,3 +454,8 @@ printbvd epoch slot Dict _diffusion = do
     bvdfmt = "epoch: "%int%" slot: "%int%" BVD: max-tx: " %int% ", max-block: " %int
   bar <- gsAdoptedBVData
   liftIO $ hPrint stderr $ sformat bvdfmt epoch slot (bvdMaxTxSize bar) (bvdMaxBlockSize bar)
+
+setSystemStartMutator :: Timestamp -> ScriptRunnerOptions -> ScriptRunnerOptions
+setSystemStartMutator systemStartTs optsin =
+  -- sets the systemStart inside the ScriptRunnerOptions to the systemStart passed in
+  optsin & srCommonNodeArgs . CLI.commonArgs_L . CLI.configurationOptions_L . cfoSystemStart_L .~ Just systemStartTs

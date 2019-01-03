@@ -18,6 +18,8 @@ module PocMode
        , PocMode
        , MonadPocMode
        , acScriptOptions
+       , acTopology
+       , acStatePath
 
        -- * Helpers
        , realModeToAuxx
@@ -65,6 +67,7 @@ import           Pos.DB.Txp (MempoolExt,
                      txProcessTransaction)
 import           Pos.Infra.Network.Types (HasNodeType (getNodeType),
                      NodeType (NodeEdge))
+import           Pos.Infra.Network.Yaml (Topology)
 import           Pos.Infra.Shutdown (HasShutdownContext (shutdownContext))
 import           Pos.Infra.Slotting.Class (MonadSlots (currentTimeSlotting, getCurrentSlot, getCurrentSlotBlocking, getCurrentSlotInaccurate))
 import           Pos.Launcher (HasConfigurations)
@@ -87,6 +90,8 @@ data AuxxContext = AuxxContext
     , _acEventChan       :: !(BChan CustomEvent)
     , _acNodeHandles     :: !(TVar (Map (Types.NodeType,Integer) NodeHandle))
     , _acScriptOptions   :: !(ScriptRunnerOptions)
+    , _acTopology        :: !(Topology)
+    , _acStatePath       :: !(Text)
     }
 
 makeLenses ''AuxxContext

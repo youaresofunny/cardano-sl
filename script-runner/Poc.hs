@@ -10,37 +10,31 @@ import           Data.Constraint (Dict (Dict))
 import           Data.Default (def)
 import           Data.Ix (range)
 import qualified Data.Text as T
-import           Data.Time.Units (fromMicroseconds)
-import           Prelude (read)
 import           System.Exit (ExitCode (ExitSuccess))
-import           System.IO (hPrint)
-import qualified Turtle as T
 import           Universum hiding (on)
 
 import           Pos.Chain.Update (ApplicationName (ApplicationName),
                      BlockVersion (BlockVersion),
-                     BlockVersionModifier (bvmMaxBlockSize, bvmMaxTxSize),
+                     BlockVersionModifier (bvmMaxBlockSize),
                      SoftwareVersion (SoftwareVersion), ccApplicationVersion_L,
                      ccLastKnownBlockVersion_L)
 import qualified Pos.Client.CLI as CLI
-import           Pos.Core (Timestamp (..))
 import           Pos.Infra.Diffusion.Types (Diffusion)
 import           Pos.Launcher (Configuration, HasConfigurations, ccUpdate_L,
-                     cfoFilePath_L, cfoKey_L, cfoSystemStart_L)
+                     cfoFilePath_L, cfoKey_L)
 
 import           AutomatedTestRunner
 import           BlockParser ()
-import           NodeControl (NodeInfo (..), genSystemStart, mkTopo,
-                     mutateConfigurationYaml, startNode,
-                     stopNodeByName, createNodes, cleanupNodes)
+import           NodeControl (NodeInfo (..), mutateConfigurationYaml, startNode,
+                     stopNodeByName)
 import           PocMode
-import           Types (NodeType (..), Todo(Todo))
+import           Types (NodeType (..), Todo (Todo))
 
 mutateConfiguration :: Configuration -> Configuration
 mutateConfiguration cfg = (cfg & ccUpdate_L . ccLastKnownBlockVersion_L .~ BlockVersion 0 1 0) & ccUpdate_L . ccApplicationVersion_L .~ 1
 
-test4 :: Text -> Example ()
-test4 stateDir = do
+test4 :: Example ()
+test4 = do
   genesisConfig <- getGenesisConfig
   let
     proposal1 :: Dict HasConfigurations -> Diffusion PocMode -> PocMode ()
@@ -63,9 +57,12 @@ test4 stateDir = do
         blockVersionModifier :: BlockVersionModifier
         blockVersionModifier = def { bvmMaxBlockSize = Just 1000000 }
       doUpdate diffusion genesisConfig keyIndex blockVersion softwareVersion blockVersionModifier
-  onStartup $ \Dict _diffusion -> loadNKeys stateDir 4
+  onStartup $ \Dict _diffusion -> do
+    stateDir <- view acStatePath
+    loadNKeys stateDir 4
   on (1,2) proposal2
   on (1,6) $ \Dict _diffusion -> do
+    stateDir <- view acStatePath
     opts <- view acScriptOptions
     let
       -- the config for the script-runner is mirrored to the nodes it starts
@@ -85,25 +82,9 @@ test4 stateDir = do
 
 main :: IO ()
 main = do
-  systemStart <- genSystemStart 10
-  let
-    -- cores run from 0-3, relays run from 0-0
-    topo = mkTopo 3 0
-    systemStartTs :: Timestamp
-    systemStartTs = Timestamp $ fromMicroseconds $ (read systemStart) * 1000000
-    optionsMutator :: ScriptRunnerOptions -> IO ScriptRunnerOptions
-    optionsMutator optsin = do
-      -- sets the systemStart inside the ScriptRunnerOptions to the systemStart generated at the start of main
-      return $ optsin
-             & srCommonNodeArgs
-             . CLI.commonArgs_L
-             . CLI.configurationOptions_L
-             . cfoSystemStart_L
-             .~ Just systemStartTs
-    scriptGetter :: HasEpochSlots => Text -> PocMode Script
-    scriptGetter stateDir = return $ getScript $ test4 stateDir
-    runScript' :: Text -> IO ()
-    runScript' stateDir = do
-      runScript (createNodes topo (Todo 4) stateDir) cleanupNodes optionsMutator (scriptGetter stateDir)
-  T.with (T.mktempdir "/tmp" "script-runner") $ \stateDir -> do
-    runScript' $ T.pack $ T.encodeString stateDir
+  runScript $ ScriptParams
+    { spTodo = (Todo 4)
+    , spScript = test4
+    , spRecentSystemStart = True
+    , spStartCoreAndRelay = True
+    }
