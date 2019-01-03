@@ -435,7 +435,6 @@ instance BuildableSafeGen SlotDuration where
     buildSafeGen _ (SlotDuration (MeasuredIn w)) =
         bprint (build%"ms") w
 
--- | How many milliseconds a slot lasts for.
 newtype MaxTxSize = MaxTxSize (MeasuredIn 'Bytes Int)
     deriving (Show, Eq)
 
