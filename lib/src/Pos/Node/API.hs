@@ -647,8 +647,8 @@ instance ToJSON (V1 Core.TxFeePolicy) where
         object $ case p of
             Core.TxFeePolicyTxSizeLinear (Core.TxSizeLinear a b) ->
                 [ "tag" .= ("linear" :: String)
-                , "a" .= toJSONWithUnit AdaPerByte a
-                , "b" .= toJSONWithUnit Ada b
+                , "a" .= toJSONWithUnit LovelacePerByte a
+                , "b" .= toJSONWithUnit Lovelace b
                 ]
             Core.TxFeePolicyUnknown _ _ ->
                 [ "tag" .= ("unknown" :: String)
@@ -680,8 +680,8 @@ instance ToSchema (V1 Core.TxFeePolicy) where
                     & type_ .~ SwaggerString
                     & enum_ ?~ ["linear", "unknown"]
                     )
-                & at "a" ?~ toSchemaWithUnit AdaPerByte (Proxy @Double)
-                & at "b" ?~ toSchemaWithUnit Ada (Proxy @Double)
+                & at "a" ?~ toSchemaWithUnit LovelacePerByte (Proxy @Double)
+                & at "b" ?~ toSchemaWithUnit Lovelace (Proxy @Double)
                 )
 
 instance Arbitrary (V1 Core.SlotCount) where
@@ -712,8 +712,8 @@ instance FromJSON (V1 Core.SlotCount) where
 -- Convert to user-presentable text for the API
 unitToText :: UnitOfMeasure -> Text
 unitToText Bytes           = "bytes"
-unitToText AdaPerByte      = "Ada/byte"
-unitToText Ada             = "Ada"
+unitToText LovelacePerByte = "Lovelace/byte"
+unitToText Lovelace        = "Lovelace"
 unitToText Seconds         = "seconds"
 unitToText Milliseconds    = "milliseconds"
 unitToText Microseconds    = "microseconds"
