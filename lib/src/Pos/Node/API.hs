@@ -637,10 +637,14 @@ instance FromJSON (V1 Core.SlotId) where
 instance Arbitrary (V1 Core.SlotId) where
     arbitrary = fmap V1 arbitrary
 
+
+
 instance Arbitrary (V1 Core.TxFeePolicy) where
-    arbitrary = fmap V1 arbitrary
-
-
+    arbitrary = fmap V1 (arbitrary `suchThat` predicate)
+      where
+        -- Don't generate unknown feepolicies
+        predicate (Core.TxFeePolicyTxSizeLinear  _) = True
+        predicate (Core.TxFeePolicyUnknown _ _)     = False
 
 instance ToJSON (V1 Core.TxFeePolicy) where
     toJSON (V1 p) =
@@ -662,13 +666,8 @@ instance FromJSON (V1 Core.TxFeePolicy) where
                 a <- (o .: "a") >>= parseJSONQuantity "Coeff"
                 b <- (o .: "b") >>= parseJSONQuantity "Coeff"
                 return $ Core.TxFeePolicyTxSizeLinear $ Core.TxSizeLinear a b
-            "unknown" ->
-                return unknownUnknown
             _ ->
                 aesonError "TxFeePolicy: unknown policy name") j
-      where
-        -- Unfortunately we cannot fill in this
-        unknownUnknown = Core.TxFeePolicyUnknown 0 ""
 
 instance ToSchema (V1 Core.TxFeePolicy) where
     declareNamedSchema _ = do
