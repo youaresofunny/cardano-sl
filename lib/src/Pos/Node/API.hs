@@ -603,6 +603,7 @@ instance ToSchema SecurityParameter where
     declareNamedSchema _ =
         declareNamedSchema (Proxy @Int)
             <&> name .~ (Just "SecurityParameter")
+            <&> minimum_ .~ (Just 0)
 
 
 instance ToSchema (V1 Core.SlotId) where
