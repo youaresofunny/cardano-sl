@@ -464,7 +464,11 @@ instance ToSchema MaxTxSize where
             & type_ .~ SwaggerObject
             & required .~ ["quantity"]
             & properties .~ (mempty
-                & at "quantity" ?~ toSchemaRef (Proxy :: Proxy Int)
+                & at "quantity" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerNumber
+                    & minimum_ .~ (Just 0)
+                    & maximum_ .~ (Just $ fromIntegral $ (maxBound :: Int))
+                    )
                 & at "unit" ?~ (Inline $ mempty
                     & type_ .~ SwaggerString
                     & enum_ ?~ ["bytes"]
