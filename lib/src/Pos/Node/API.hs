@@ -15,8 +15,6 @@ import qualified Data.Aeson.Options as Aeson
 import           Data.Aeson.TH as A
 import           Data.Aeson.Types (Parser, Value (..), toJSONKeyText)
 import qualified Data.ByteArray as ByteArray
-import qualified Data.ByteString.Base64 as B64
-import qualified Data.ByteString.Char8 as BC8
 import qualified Data.Char as C
 import qualified Data.Map.Strict as Map
 import           Data.Swagger hiding (Example, example)
@@ -647,10 +645,8 @@ instance ToJSON (V1 Core.TxFeePolicy) where
                 , "a" .= toJSONWithUnit AdaPerByte a
                 , "b" .= toJSONWithUnit Ada b
                 ]
-            Core.TxFeePolicyUnknown policyTag policyPayload ->
+            Core.TxFeePolicyUnknown _ _ ->
                 [ "tag" .= ("unknown" :: String)
-                , "unknownTag" .= policyTag
-                , "unknownPayload" .= (BC8.unpack $ B64.encode policyPayload)
                 ]
 
 instance FromJSON (V1 Core.TxFeePolicy) where
@@ -661,16 +657,13 @@ instance FromJSON (V1 Core.TxFeePolicy) where
                 a <- (o .: "a") >>= parseJSONQuantity "Coeff"
                 b <- (o .: "b") >>= parseJSONQuantity "Coeff"
                 return $ Core.TxFeePolicyTxSizeLinear $ Core.TxSizeLinear a b
-            "unknown" -> do
-                t <- o .: "unknownTag"
-                p <- o .: "unknownPayload"
-                p' <- either
-                        (\x -> (aesonError $ "TxFeePolicy: invalid base64" <> show x))
-                        return
-                        $ B64.decode $ BC8.pack $ p
-                return $ Core.TxFeePolicyUnknown t p'
+            "unknown" ->
+                return unknownUnknown
             _ ->
                 aesonError "TxFeePolicy: unknown policy name") j
+      where
+        -- Unfortunately we cannot fill in this
+        unknownUnknown = Core.TxFeePolicyUnknown 0 ""
 
 instance ToSchema (V1 Core.TxFeePolicy) where
     declareNamedSchema _ = do
@@ -684,12 +677,6 @@ instance ToSchema (V1 Core.TxFeePolicy) where
                     )
                 & at "a" ?~ toSchemaWithUnit AdaPerByte (Proxy @Double)
                 & at "b" ?~ toSchemaWithUnit Ada (Proxy @Double)
-                & at "unknownTag" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerNumber
-                    )
-                & at "unknownPayload" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerString
-                    )
                 )
 
 instance Arbitrary (V1 Core.SlotCount) where
