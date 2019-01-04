@@ -452,15 +452,10 @@ mkSlotDuration = SlotDuration . MeasuredIn
 
 
 instance ToJSON SlotDuration where
-    toJSON (SlotDuration (MeasuredIn w)) =
-        object
-            [ "quantity" .= toJSON w
-            , "unit"     .= String "milliseconds"
-            ]
+    toJSON (SlotDuration (MeasuredIn w)) = toJSONWithUnit Milliseconds w
 
 instance FromJSON SlotDuration where
-    parseJSON = withObject "SlotDuration" $ \sl ->
-        mkSlotDuration <$> sl .: "quantity"
+    parseJSON = parseJSONQuantity "SlotDuration"
 
 instance ToSchema SlotDuration where
     declareNamedSchema _ =
