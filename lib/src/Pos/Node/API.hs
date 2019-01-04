@@ -95,6 +95,55 @@ genericSchemaDroppingPrefix prfx extraDoc proxy = do
           Just (Ref ref)  -> maybe err rewrap (defs ^. at (getReference ref))
           _               -> err
 
+
+--
+-- Helpers for writing instances for types with units
+--
+
+-- Using a newtype wrapper might have been more elegant in some ways, but the
+-- helpers need different amounts of information.
+
+-- Convert to user-presentable text for the API
+unitToText :: UnitOfMeasure -> Text
+unitToText Bytes           = "bytes"
+unitToText LovelacePerByte = "Lovelace/byte"
+unitToText Lovelace        = "Lovelace"
+unitToText Seconds         = "seconds"
+unitToText Milliseconds    = "milliseconds"
+unitToText Microseconds    = "microseconds"
+unitToText Percentage100   = "percent"
+unitToText Blocks          = "blocks"
+unitToText BlocksPerSecond = "blocks/second"
+
+toJSONWithUnit :: ToJSON a => UnitOfMeasure -> a -> Value
+toJSONWithUnit u a =
+    object
+        [ "unit"     .= unitToText u
+        , "quantity" .= toJSON a
+        ]
+
+-- This function ignores the unit, which might cause confusion.
+parseJSONQuantity :: FromJSON a => String -> Value -> Parser a
+parseJSONQuantity s = withObject s $ \o -> o .: "quantity"
+
+-- assumes there is only one allowed unit
+toSchemaWithUnit
+  :: (HasRequired a1 [a2], HasProperties a1 a3, Monoid a1, Monoid a3,
+      At a3, IsString a2, IsString (Index a3), ToSchema a4,
+      HasType a1 (SwaggerType 'Data.Swagger.Internal.SwaggerKindSchema),
+      IxValue a3 ~ Referenced Schema) =>
+     UnitOfMeasure -> proxy a4 -> Referenced a1
+toSchemaWithUnit unitOfMeasure a = Inline  (mempty
+            & type_ .~ SwaggerObject
+            & required .~ ["quantity"]
+            & properties .~ (mempty
+                & at "quantity" ?~ toSchemaRef a
+                & at "unit" ?~ (Inline $ mempty
+                    & type_ .~ SwaggerString
+                    & enum_ ?~ [String $ unitToText unitOfMeasure]
+                    )
+                ))
+
 data ForceNtpCheck
     = ForceNtpCheck
     | NoNtpCheck
@@ -701,53 +750,6 @@ instance FromJSON (V1 Core.SlotCount) where
     parseJSON v = V1 . Core.SlotCount <$> parseJSON v
 
 
---
--- Helpers for writing instances for types with units
---
-
--- Using a newtype wrapper might have been more elegant in some ways, but the
--- helpers need different amounts of information.
-
--- Convert to user-presentable text for the API
-unitToText :: UnitOfMeasure -> Text
-unitToText Bytes           = "bytes"
-unitToText LovelacePerByte = "Lovelace/byte"
-unitToText Lovelace        = "Lovelace"
-unitToText Seconds         = "seconds"
-unitToText Milliseconds    = "milliseconds"
-unitToText Microseconds    = "microseconds"
-unitToText Percentage100   = "percent"
-unitToText Blocks          = "blocks"
-unitToText BlocksPerSecond = "blocks/second"
-
-toJSONWithUnit :: ToJSON a => UnitOfMeasure -> a -> Value
-toJSONWithUnit u a =
-    object
-        [ "unit"     .= unitToText u
-        , "quantity" .= toJSON a
-        ]
-
--- This function ignores the unit, which might cause confusion.
-parseJSONQuantity :: FromJSON a => String -> Value -> Parser a
-parseJSONQuantity s = withObject s $ \o -> o .: "quantity"
-
--- assumes there is only one allowed unit
-toSchemaWithUnit
-  :: (HasRequired a1 [a2], HasProperties a1 a3, Monoid a1, Monoid a3,
-      At a3, IsString a2, IsString (Index a3), ToSchema a4,
-      HasType a1 (SwaggerType 'Data.Swagger.Internal.SwaggerKindSchema),
-      IxValue a3 ~ Referenced Schema) =>
-     UnitOfMeasure -> proxy a4 -> Referenced a1
-toSchemaWithUnit unitOfMeasure a = Inline  (mempty
-            & type_ .~ SwaggerObject
-            & required .~ ["quantity"]
-            & properties .~ (mempty
-                & at "quantity" ?~ toSchemaRef a
-                & at "unit" ?~ (Inline $ mempty
-                    & type_ .~ SwaggerString
-                    & enum_ ?~ [String $ unitToText unitOfMeasure]
-                    )
-                ))
 
 -- | The @static@ settings for this wallet node. In particular, we could group
 -- here protocol-related settings like the slot duration, the transaction max size,
