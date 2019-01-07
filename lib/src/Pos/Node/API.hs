@@ -455,7 +455,7 @@ instance ToJSON SlotDuration where
     toJSON (SlotDuration (MeasuredIn w)) = toJSONWithUnit Milliseconds w
 
 instance FromJSON SlotDuration where
-    parseJSON = parseJSONQuantity "SlotDuration"
+    parseJSON v = mkSlotDuration <$> parseJSONQuantity "SlotDuration" v
 
 instance ToSchema SlotDuration where
     declareNamedSchema _ =
