@@ -477,7 +477,7 @@ instance BuildableSafeGen SlotDuration where
     buildSafeGen _ (SlotDuration (MeasuredIn w)) =
         bprint (build%"ms") w
 
-newtype MaxTxSize = MaxTxSize (MeasuredIn 'Bytes Int)
+newtype MaxTxSize = MaxTxSize (MeasuredIn 'Bytes Word)
     deriving (Show, Eq)
 
 instance ToJSON MaxTxSize where
@@ -491,7 +491,7 @@ instance FromJSON MaxTxSize where
     parseJSON = withObject "MaxTxSize" $ \o ->
         mkMaxTxSize <$> o .: "quantity"
 
-mkMaxTxSize :: Int -> MaxTxSize
+mkMaxTxSize :: Word -> MaxTxSize
 mkMaxTxSize = MaxTxSize . MeasuredIn
 
 instance Arbitrary MaxTxSize where
@@ -511,7 +511,6 @@ instance ToSchema MaxTxSize where
                 & at "quantity" ?~ (Inline $ mempty
                     & type_ .~ SwaggerNumber
                     & minimum_ .~ (Just 0)
-                    & maximum_ .~ (Just $ fromIntegral $ (maxBound :: Int))
                     )
                 & at "unit" ?~ (Inline $ mempty
                     & type_ .~ SwaggerString
@@ -642,7 +641,10 @@ instance ToSchema (V1 Version) where
 
 
 newtype SecurityParameter = SecurityParameter Int
-    deriving (Show, Eq, Generic, ToJSON, FromJSON, Arbitrary)
+    deriving (Show, Eq, Generic, ToJSON, FromJSON)
+
+instance Arbitrary SecurityParameter where
+    arbitrary = SecurityParameter . abs <$> arbitrary
 
 instance Buildable SecurityParameter where
     build (SecurityParameter i) = bprint shown i
