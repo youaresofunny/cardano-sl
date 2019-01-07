@@ -511,6 +511,7 @@ instance ToSchema MaxTxSize where
                 & at "quantity" ?~ (Inline $ mempty
                     & type_ .~ SwaggerNumber
                     & minimum_ .~ (Just 0)
+                    & maximum_ .~ (Just $ fromIntegral $ (maxBound :: Int))
                     )
                 & at "unit" ?~ (Inline $ mempty
                     & type_ .~ SwaggerString
@@ -648,9 +649,9 @@ instance Buildable SecurityParameter where
 
 instance ToSchema SecurityParameter where
     declareNamedSchema _ =
-        pure $ NamedSchema (Just "SecurityParameter") $ mempty
-            & type_ .~ SwaggerNumber
-            & minimum_ .~ (Just 0)
+        declareNamedSchema (Proxy @Int)
+            <&> name .~ (Just "SecurityParameter")
+            <&> minimum_ .~ (Just 0)
 
 
 instance ToSchema (V1 Core.SlotId) where
